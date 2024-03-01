@@ -1,0 +1,325 @@
+---
+title: "SOLWEIG_raster_creation"
+author: "Todi Daelman"
+date: "2023-12-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(lidR)
+library(raster)
+library(rgl)          #3D plotting
+library(rasterVis)    #3D plotting of a raster
+library(plot3D)
+library(sf)           #shapefiles handling
+library(terra)
+library(dplyr)
+library(lubridate)    #date handeling
+library(mapview)
+
+# devtools:::install_github("gearslaboratory/gdalUtils")
+
+```
+
+Paths
+
+TLS_tree_path <- "../pointcloud data/tep313205_TLSsummer_20220704 - Cloud.las"
+DSM_vl_path <- "../input/DEM/GeoTIFF/DHMVIIDSMRAS1m_k22.tif"
+DTM_vl_path <- "../input/DTM/GeoTIFF/DHMVIIDTMRAS1m_k22.tif"
+GRB_path <- "../input/GRB/Shapefile/GRBGebL1D244021.shp"
+
+```{r}
+## fixed file paths Flanders
+DSM_vl_path <- "../input/DEM/GeoTIFF/DHMVIIDSMRAS1m_k22.tif"
+DTM_vl_path <- "../input/DTM/GeoTIFF/DHMVIIDTMRAS1m_k22.tif"
+GRB_path <- "../input/GRB/Shapefile/GRBGebL1D244021.shp"
+
+#TLS tree(s) folder path
+TLS_tree_path <- "C:/Users/todaelma/OneDrive - UGent/Documents/PhD/TLS trees/summer2021/kareldierickx_2/bomengeknipt - POINTCLOUDS - kareldierickx_tree1.las"
+TLS_tree_folder_path <- "C:/Users/todaelma/OneDrive - UGent/Documents/PhD/TLS trees/summer2021/kareldierickx_processed/"
+
+#extent shapefile layer path (optional)
+extent_i_path <- "../generated SOLWEIG input/kareldierickx/extent_full.shp"
+ # r"(C:\Users\todaelma\OneDrive - UGent\Documents\PhD\QGIS\SOLWEIG\test-Gent\generated SOLWEIG input\kareldierickx\street_extent_NS.shp)"
+
+
+# Specify the output folder
+output_folder <- "../generated SOLWEIG input/kareldierickx"
+
+```
+
+Meteo data downloaded from: https://www.shinyweatherdata.com/
+
+8 july 2023 - hottest day in 2023
+```{r}
+meteo_raw <- read.csv("../input/meteo/08-07-2023/filec2611f0a_lat=51_lng=3.75_period=20230708-20230709.csv",
+                  skip = 11)
+meteo_raw %>%
+  mutate(datetime = as.POSIXct(datetime)) %>%
+  mutate(year = year(datetime),
+         nday = yday(datetime),
+         hour = hour(datetime),
+         minute = minute(datetime)) %>%
+  select(datetime, year, nday, hour, minute, ssrd, ws10, t2m, r2m, dhi, dni) %>%
+  filter(nday == 189) -> meteo
+
+
+# write.csv(meteo, "../generated SOLWEIG input/meteo/08-07-2023/meteo_unprocessed.csv",
+#           quote = FALSE,
+#           row.names = FALSE)
+
+# further processing in QGIS with the UMEP: "Prepare existing data" tool
+
+```
+
+
+set exent of the scene
+
+create mask layer
+
+```{r}
+
+mask_layer <- st_read(extent_i_path)
+
+extent_i <- extent(mask_layer) 
+
+midpoint <- c(unlist(extent_i)[1] + (unlist(extent_i)[2] - unlist(extent_i)[1])/2, 
+              unlist(extent_i)[3] + (unlist(extent_i)[4] - unlist(extent_i)[3])/2)
+
+
+max_dist <- max((unlist(extent_i)[2] - unlist(extent_i)[1])/2, (unlist(extent_i)[4] - unlist(extent_i)[3])/2)
+
+extent_square <- c(midpoint[1] - max_dist,
+                   midpoint[1] + max_dist,
+                   midpoint[2] - max_dist,
+                   midpoint[2] + max_dist)
+
+extent_i <- round(extent_square) #afronden zodat steeds gelijk is over
+
+
+```
+
+load in layers and cut to extent
+
+DSM = https://download.vlaanderen.be/product/937-digitaal-hoogtemodel-vlaanderen-ii-dsm-raster-1-m
+DTM = https://download.vlaanderen.be/product/939-digitaal-hoogtemodel-vlaanderen-ii-dtm-raster-1-m 
+GRB = https://download.vlaanderen.be/product/971-3d-grb
+
+
+```{r}
+# flemish data DSM (buildings + vegetation + ...) and DTM (only ground) - 2014
+DSM_vl <- raster(file.path(DSM_vl_path))
+DTM_vl <- raster(file.path(DTM_vl_path))
+DSM_vl_i <- crop(DSM_vl, extent_i)
+DEM <- crop(DTM_vl, extent_i)
+
+# Check if GRB_x exists
+if (!exists("GRB_vl")) {
+  # load in GRB - 2014
+  GRB_vl <- st_read(file.path(GRB_path))
+}
+
+GRB_i <- st_crop(GRB_vl, extent(DEM))
+#st_write(GRB_i, "output/DEM_masklayer.shp")
+
+```
+
+generate layers for SOLWEIG
+
+
+DSM
+```{r, warning = FALSE}
+
+DSM <- cover(mask(DSM_vl_i, GRB_i), DEM) #mask to cut out with a polygon mask layer, cover to fill in NA values with values of DEM
+
+plot(DSM_vl_i)
+polys(GRB_i, add = TRUE)
+
+plot(DEM)
+polys(GRB_i, add = TRUE)
+
+plot(DSM)
+polys(GRB_i, add = TRUE)
+
+
+```
+
+
+ALS processing (optional)
+```{r warning = FALSE}
+
+# load in laz files
+ALS_raw <- readLAS('../input/ALS_vrijheidslaan/ALS_cropped_extent.las')
+raster_las <- grid_metrics(ALS_raw, ~max(Z), res = 1)
+raster_las <- resample(raster_las, DEM, method = "ngb")
+
+
+# raster_las_resampled * (NDVI_raster > green_NDVI_cutoff & raster_las_resampled > z_min)
+
+DSM_ALS <- cover(mask(raster_las, GRB_i), DEM)
+
+plot(DSM)
+polys(GRB_i, add = TRUE)
+
+plot(DSM_ALS)
+polys(GRB_i, add = TRUE)
+
+
+
+```
+
+
+
+CDSM (ground + maximum canopy height) and TDSM (ground + minimal canopy height) generation from TLS data
+```{r}
+file_names <- list.files(path = TLS_tree_folder_path, full.names = TRUE)
+
+CDSM_list <- list()
+TDSM_list <- list()
+
+
+for (file in file_names){
+  las <- readLAS(file)
+  CDSM_i <- grid_metrics(las, quantile(Z, probs = 0.99), res = 1)
+  # CDSM_i <- grid_metrics(las, ~max(Z), res = 1)
+  CDSM_i <- extend(CDSM_i, extent(DEM), NA)
+  CDSM_list[[file]] <- resample(CDSM_i, DEM, method = "ngb")
+  
+  TDSM_i <- grid_metrics(las, ~quantile(Z, probs = 0.01), res = 1)
+  # TDSM_i2 <- grid_metrics(las, ~min(Z), res = 1)
+  TDSM_i <- extend(TDSM_i, extent(DEM), NA)
+  TDSM_list[[file]] <- resample(TDSM_i, DEM, method = "ngb")
+  
+  print(file)
+}
+
+
+CDSM <- merge(stack(CDSM_list))
+TDSM <- merge(stack(TDSM_list))
+
+plot(CDSM)
+polys(GRB_i, add = TRUE)
+
+plot(TDSM)
+polys(GRB_i, add = TRUE)
+
+
+```
+
+
+
+landcover
+
+```{r}
+
+landcover <- raster(ext = extent_i, res = 1)
+landcover <- rasterize(GRB_i, landcover, fun = 'first')
+
+landcover[!is.na(landcover)] <- 2
+landcover[is.na(landcover)] <- 1
+
+plot(landcover)
+
+```
+
+
+DEM inlezen
+
+```{r}
+library(gdalUitls)
+
+
+```
+
+
+running python code in R
+
+een laz file clippen obv extent zonder dat de laz file moet worden ingelezen
+https://grass.osgeo.org/grass83/manuals/r.in.pdal.html 
+
+"Setting extent and resolution
+Since the creation of raster maps depends on the computational region settings (extent and resolution), as default the current region extents and resolution are used for the import. When using the -e flag along with the resolution=value parameter, the region used for the new raster will be based the point cloud extent and the provided resolution. It is therefore recommended to first use the -s flag to get the extents of the LiDAR point cloud to be imported, then adjust the current region extent and resolution accordingly, and only then proceed with the actual import. Another option is to automatically set the region extents based on the LAS dataset itself (-e flag) along with the desired raster resolution. The best option is to know the point cloud extent ahead, e.g. from tiling scheme, and use it. See below for details."
+
+
+```{r}
+library(reticulate)
+reticulate::install_python(version = '3.12.0')
+virtualenv_create("r-solweig-test")
+
+virtualenv_install("r-solweig-test", "scipy")
+scipy <- import("grass.script")
+```
+
+
+```{python}
+
+
+print(1+1)
+```
+Plotting
+
+```{r}
+
+# plotting of DEM and centerpoint
+
+
+# Create a 3D plot using rgl
+
+material3d(smooth = FALSE, id = NULL)
+
+
+#flip = TRUE
+
+breaks <- seq(0,max(lasfile$Z),2)
+breaks <- seq(0,1,0.1)
+
+rasterVis::plot3D(DEM, at = breaks, adjust = FALSE, flip = TRUE)
+points3d(x = midpoint[1], y = midpoint[2], z = DEM_groundlevel, add = TRUE, flip = TRUE)
+rasterVis::plot3D(CDSM, add = TRUE, adjust = FALSE, flip = TRUE)
+rasterVis::plot3D(TDSM, add = TRUE, adjust = FALSE)
+
+
+```
+
+```{r}
+crs(DEM) <- "EPSG:31370"
+crs(DSM) <- "EPSG:31370"
+crs(CDSM) <- "EPSG:31370"
+crs(TDSM) <- "EPSG:31370"
+crs(landcover) <- "EPSG:31370"
+
+
+compareRaster(DEM, DSM, CDSM, TDSM, landcover)
+compareRaster(DEM, DSM, landcover)
+
+plot(DEM)
+plot(DSM)
+plot(CDSM)
+plot(TDSM)
+plot(landcover)
+
+```
+
+
+
+```{r output saven}
+
+# Create the output folder if it doesn't exist
+if (!file.exists(output_folder)) {
+  dir.create(output_folder, recursive = TRUE)
+}
+
+# Save rasters to the output folder
+writeRaster(DEM, file.path(output_folder, "DEM.tif"), format = "GTiff", overwrite = TRUE)
+writeRaster(CDSM, file.path(output_folder, "CDSM.tif"), format = "GTiff", overwrite = TRUE)
+writeRaster(TDSM, file.path(output_folder, "TDSM.tif"), format = "GTiff", overwrite = TRUE)
+writeRaster(DSM, file.path(output_folder, "DSM.tif"), format = "GTiff", overwrite = TRUE)
+writeRaster(landcover, file.path(output_folder, "landcover.tif"), format = "GTiff", overwrite = TRUE)
+
+```
+
+
+
+

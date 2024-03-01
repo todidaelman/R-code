@@ -1,0 +1,759 @@
+---
+title: "kareldierickx_analyse_transveg"
+author: "Todi Daelman"
+date: "2024-02-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
+# options(paged.print=FALSE) #output of tables as in console and not as tibble
+
+library(lidR)
+library(raster)
+library(rgl)          #3D plotting
+library(rasterVis)    #3D plotting of a raster
+library(plot3D)
+library(sf)
+library(terra)
+library(dplyr)
+library(lubridate)    #date handeling
+library(ggnewscale)   #introduce new color scale in plots 
+library(ggplot2)      #
+library(patchwork)    #stick different plots to each other
+library(animation)
+library(viridis)
+library(cowplot)      #adding title to combined plots with plot_grid
+library(egg)          #ggcombine function
+library(ggpubr)       #annotate_figure function
+library(purrr)
+library(factoextra)   #visualising clusters
+library(ggridges)     #ridgeline plots
+library(grid)         #combining plots
+
+source("functions/mrt_average.r")
+source("functions/gplot_data.r")
+source("functions/mrt_cropping.r")
+source("functions/mrt_plotting_vegtrans.r")
+source("functions/rasterlist_to_df.r")
+source("functions/shade_analyser.r")
+```
+
+*setting paths and loading in files*
+
+```{r loading_input, include = FALSE}
+
+simulation_output_folder <- "C:/Users/todaelma/OneDrive - UGent/Documents/PhD/QGIS/SOLWEIG/test-Gent/generated SOLWEIG input/kareldierickx/solweig_output/simulation_output"
+clip_extent_path <- "C:/Users/todaelma/OneDrive - UGent/Documents/PhD/QGIS/SOLWEIG/test-Gent/generated SOLWEIG input/kareldierickx/street_extent.shp"
+
+DSM_background <- raster("C:/Users/todaelma/OneDrive - UGent/Documents/PhD/QGIS/SOLWEIG/test-Gent/generated SOLWEIG input/kareldierickx/DSM.tif")
+DSM_background_df <- gplot_data(DSM_background)
+
+clip_extent <- st_read(clip_extent_path) 
+
+```
+
+# Transmission through vegetation analysis
+
+*loading in (cropped) Tmrt results of [all hours]{.underline} of [all scenarios]{.underline}*
+
+```{r warning : FALSE, echo = FALSE, message = FALSE}
+
+raster_list_full <- mrt_cropping(simulation_output_folder, clip_extent, search_variable = "transveg", time_of_interest = "D")
+
+```
+
+## 1. No trees
+
+### Figures:
+
+-   cooling per hour [MAP]
+
+```{r warning = FALSE, message = FALSE, results = "hide"}
+
+raster_list_notree <- raster_list_full[[1]]
+
+ggplot_list_notree <- mrt_plotting_vegtrans(raster_list_notree, DSM_background, control = FALSE)
+
+for (i in 1:length(ggplot_list_notree)){
+  print(
+    ggplot_list_notree[[i]] +
+      ggtitle(paste0(6 + i, "h00")) +
+      scale_fill_viridis(option = "inferno",
+                         limits = c(15, 65))
+  )
+}
+
+```
+
+-   average through the day [MAP]
+
+*all average Tmrt rasters creation*
+```{r message = FALSE, echo = FALSE, results = "hide"}
+
+mrt_average_raster_list <- mrt_average(simulation_output_folder = simulation_output_folder,
+                                      clip_extent = clip_extent,
+                                      search_variable = "transveg",
+                                      time_of_interest = "D")
+
+names(mrt_average_raster_list) <- names(raster_list_full)
+
+```
+
+*average Tmrt of no vegetation scenario*
+```{r echo = FALSE, results = "hide"}
+
+ggplot_list_notree <- mrt_plotting_vegtrans(mrt_average_raster_list[1], DSM_background, control = TRUE)
+
+print(ggplot_list_notree[[1]] +
+        ggtitle("average Tmrt (7h00 - 22h00) no vegetation") +
+        scale_fill_viridis(option = "inferno"))
+
+```
+
+-   average Tmrt distribution throughout the day
+
+```{r}
+
+#boxplots for every hour?
+
+#average line with shaded area in background showing min and max?
+
+
+
+```
+
+### Tables:
+
+*making a dataframe with all pixel (in cropped extent) values per hour*
+
+```{r echo = FALSE}
+#see function rasterlist_to_df
+
+notree_df_hour <- rasterlist_to_df(raster_list_notree)
+
+print(head(round(na.omit(notree_df_hour),1)))
+
+```
+
+-   min, max, average Tmrt per hour (7h00 - 22h00)
+
+```{r paged.print=FALSE, echo = FALSE}
+
+notree_df_hour %>%
+  tidyr::pivot_longer(cols = everything(),
+                      names_to = "hour",
+                      values_to = "Tmrt") %>%
+  mutate(hour = factor(hour, levels = paste0("hour_", 7:22), ordered = TRUE)) %>%
+  filter(!is.na(Tmrt)) %>%
+  group_by(hour) %>%
+  summarise(min = min(Tmrt), 
+            max = max(Tmrt), 
+            mean = mean(Tmrt), 
+            median = median(Tmrt)) %>%
+  mutate(across(where(is.double), ~ round(., 1))) -> summary_notrees_hour
+
+summary_notrees_hour
+```
+
+-   overall min, max, average
+
+```{r, echo = FALSE}
+
+notree_df_hour %>%
+  tidyr::pivot_longer(cols = everything(),
+                      names_to = "hour",
+                      values_to = "Tmrt") %>%
+  mutate(hour = factor(hour, levels = paste0("hour_", 7:22), ordered = TRUE)) %>%
+  filter(!is.na(Tmrt)) %>%
+  summarise(min = min(Tmrt), 
+            max = max(Tmrt), 
+            mean = mean(Tmrt), 
+            median = median(Tmrt)) %>%
+  mutate(across(where(is.double), ~ round(., 1))) -> summary_notrees_day
+
+print(summary_notrees_day)
+```
+
+### Figure
+
+-   Tmrt progression throughout the day
+
+```{r echo = FALSE}
+
+summary_notrees_hour %>%
+  mutate(time = as.POSIXct(paste0(sub("hour_", "", hour), ":00"), format = "%H:%M")) %>%
+  ggplot(aes(x = time)) +
+  geom_ribbon(aes(ymin = min, ymax = max), fill = "lightblue", color = NA, alpha = 0.3) +
+  geom_line(aes(y = mean), color = "blue", linewidth = 1) +
+  labs(x = "Hour", y = "Temperature") +
+  scale_x_datetime(date_labels = "%H:%M", breaks = "2 hours") +
+  theme_minimal() +
+  ggtitle("mean Tmrt") -> notrees_hour_plot_mean
+
+print(notrees_hour_plot_mean)
+
+summary_notrees_hour %>%
+  mutate(time = as.POSIXct(paste0(sub("hour_", "", hour), ":00"), format = "%H:%M")) %>%
+  ggplot(aes(x = time)) +
+  geom_ribbon(aes(ymin = min, ymax = max), fill = "lightblue", color = NA, alpha = 0.3) +
+  geom_line(aes(y = median), color = "blue", linewidth = 1) +
+  labs(x = "Hour", y = "Temperature") +
+  scale_x_datetime(date_labels = "%H:%M", breaks = "2 hours") +
+  theme_minimal() +
+  ggtitle("median Tmrt") -> notrees_hour_plot_median
+
+print(notrees_hour_plot_median)
+
+```
+
+## 2. First scenario: 5% transmission
+
+### Figures:
+
+-   cooling per hour [MAP]
+
+```{r echo = FALSE, results = "hide"}
+
+raster_list_transveg5 <- raster_list_full[[2]]
+
+ggplot_list_transveg5 <- mrt_plotting_vegtrans(raster_list_transveg5, DSM_background, control = FALSE)
+
+for (i in 1:length(ggplot_list_transveg5)){
+  print(
+    ggplot_list_transveg5[[i]] +
+      ggtitle(paste0(6 + i, "h00")) +
+      scale_fill_gradientn(colours = c("blue2", "green4", "yellow3", "red2"),
+                           limits = c(15,65)) 
+      # scale_fill_viridis(option = "inferno",
+      #                    limits = c(15, 65))
+  )
+}
+
+```
+
+-   average through the day [MAP]
+
+```{r echo = FALSE, results = "hide"}
+
+ggplot_list_notree <- mrt_plotting_vegtrans(mrt_average_raster_list[2], DSM_background, control = TRUE)
+
+print(ggplot_list_notree[[1]] +
+        ggtitle("average Tmrt (7h00 - 22h00) no vegetation") +
+        scale_fill_viridis(option = "inferno"))
+
+```
+
+-   pixels with significant cooling (can be turned into a table instead of one value) [MAP]
+
+    -   cooling is significant when:
+
+        -   Tmrt \> **x** °C
+
+        -   delta_Tmrt (no trees vs trees) \> **y** °C
+
+*first we look at the Tmrt delta between trees and no trees*
+
+*delta calculation for transveg 5%*
+```{r echo = FALSE}
+
+# delta_Tmrt:
+
+raster_list_transveg5 <- raster_list_full[[2]]
+raster_list_notree <- raster_list_full[[1]]
+
+raster_list_transveg5_delta <- list()
+
+for (i in 1:length(raster_list_transveg5)) {
+  raster_list_transveg5_delta[[i]] <- raster_list_transveg5[[i]] - raster_list_notree[[i]]
+}
+
+
+```
+
+*now we have calculated the delta, we can create tables*
+
+```{r echo = FALSE}
+# delta_Tmrt: min and max
+
+#convert list of rasters to dataframe
+transveg5_delta_df_hour <- rasterlist_to_df(raster_list_transveg5_delta)
+
+#table creation
+transveg5_delta_df_hour %>%
+  tidyr::pivot_longer(cols = everything(),
+                      names_to = "hour",
+                      values_to = "delta_Tmrt") %>%
+  mutate(hour = factor(hour, levels = paste0("hour_", 7:22), ordered = TRUE)) %>%
+  filter(!is.na(delta_Tmrt)) %>%
+  group_by(hour) %>%
+  summarise(min = min(delta_Tmrt), 
+            max = max(delta_Tmrt), 
+            mean = mean(delta_Tmrt), 
+            median = median(delta_Tmrt),
+            count = n()) %>%
+  mutate(across(where(is.double), ~ round(., 1))) -> summary_transveg5_delta_hour
+
+print(summary_transveg5_delta_hour)
+```
+
+```{r echo = FALSE, results = "hide"}
+
+ggplot_list_transveg5_delta <- mrt_plotting_vegtrans(raster_list_transveg5_delta, DSM_background, control = FALSE)
+
+for (i in 1:length(ggplot_list_transveg5_delta)){
+  print(
+    ggplot_list_transveg5_delta[[i]] +
+      ggtitle(paste0(6 + i, "h00")) +
+      scale_fill_gradientn(colours = c("blue2", "green3", "white"),
+                         limits = c(-30,1))
+      # scale_fill_viridis(option = "inferno",
+      #                    limits = c(15, 65))
+  )
+}
+
+
+
+```
+
+-   probability density distribution of every hour (overlayed with global density function?)
+
+```{r echo = FALSE}
+
+plotdens_hour <- function(delta_df_hour, deltamax = 10) {
+  delta_df_hour %>%
+  tidyr::pivot_longer(cols = everything(),
+                      names_to = "hour",
+                      values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  filter(value < deltamax) %>%
+  mutate(hour = factor(hour, levels = paste0("hour_", 7:22), ordered = TRUE)) %>%
+  ggplot() + geom_density(aes(x = value, fill = hour), alpha = 0.4) +
+  theme_minimal() +
+  scale_fill_viridis(discrete = TRUE) -> densplottemp
+  
+  return(densplottemp)
+}
+
+deltamax <- -2
+
+#complete plotting
+print(plotdens_hour(transveg5_delta_df_hour, deltamax) +
+    scale_x_continuous(limits = c(-30, deltamax)))
+
+# per hour plotting
+for (i in 1:dim(transveg5_delta_df_hour)[2]) {
+  transveg5_delta_df_hour %>%
+    tidyr::pivot_longer(cols = everything(),
+                        names_to = "hour",
+                        values_to = "value") %>%
+    filter(!is.na(value)) %>%
+    filter(value < deltamax) %>%
+    mutate(hour = factor(hour, levels = paste0("hour_", 7:22), ordered = TRUE)) %>%
+    filter(hour == paste0("hour_", i+6)) %>%
+    ggplot() + geom_density(aes(x = value, fill = hour), alpha = 0.4) +
+    theme_minimal() +
+    scale_fill_viridis(discrete = TRUE,
+                       begin = (-1+i)/(dim(transveg5_delta_df_hour)[2]-4)) +
+    ggtitle(paste0(i+6, "h00")) +
+    scale_x_continuous(limits = c(-35, deltamax)) +
+    theme(legend.position="none",
+          plot.title = element_text(hjust = 0.5)) -> plot_temp
+  
+  print(plot_temp)
+}
+
+
+
+```
+
+### Tables:
+
+-   Per hour:
+
+    -   min and max Tmrt
+
+    -   min and max delta_Tmrt
+
+    -   #pixels with significant cooling & average significant cooling value
+
+```{r echo = FALSE}
+
+# Tmrt: min and max 
+transveg5_df_hour <- rasterlist_to_df(raster_list_transveg5)
+
+transveg5_df_hour %>%
+  tidyr::pivot_longer(cols = everything(),
+                      names_to = "hour",
+                      values_to = "Tmrt") %>%
+  mutate(hour = factor(hour, levels = paste0("hour_", 7:22), ordered = TRUE)) %>%
+  filter(!is.na(Tmrt)) %>%
+  group_by(hour) %>%
+  summarise(min = min(Tmrt), 
+            max = max(Tmrt), 
+            mean = mean(Tmrt), 
+            median = median(Tmrt)) %>%
+  mutate(across(where(is.double), ~ round(., 1))) -> summary_transveg5_hour
+
+print(summary_transveg5_hour)
+
+
+
+```
+-   #pixels with significant cooling & average significant cooling value
+
+```{r}
+
+
+
+for (i in 1:dim(transveg5_delta_df_hour)[2]) {
+  transveg5_delta_df_hour %>%
+    tidyr::pivot_longer(cols = everything(),
+                        names_to = "hour",
+                        values_to = "value") %>%
+    filter(!is.na(value)) %>%
+    filter(hour == paste0("hour_", i + 6)) %>%
+    filter(value < 10) %>%
+    mutate(hour = factor(hour, levels = paste0("hour_", 7:22), ordered = TRUE)) %>%
+    arrange(value) %>%
+    mutate(x = 1:length(value)) %>%
+    ggplot() + geom_jitter(aes(x = value, y = value)) +
+    ggtitle(paste0(i+6, "h00")) -> temppointplot
+  print(temppointplot)
+}
+
+transveg5_delta_df_hour %>%
+  tidyr::pivot_longer(cols = paste0("hour_", 7:14),
+                      names_to = "hour",
+                      values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  filter(value < 0) %>%
+  mutate(hour = factor(hour, levels = paste0("hour_", 7:22), ordered = TRUE)) %>%
+  arrange(value) %>%
+  mutate(x = 1:length(value)) %>%
+  ggplot(aes(x = hour, y = value, fill = hour, color = hour)) +
+  geom_dotplot(binaxis = 'y',
+               stackdir = 'center',
+               stackratio = 0.2,
+               dotsize = 0.5,
+               position = "jitter",
+               method = "histodot") +
+  ggtitle(paste0(i + 6, "h00")) +
+  theme_minimal() +
+  theme(legend.position="none",
+        plot.title = element_text(hjust = 0.5)) -> temppointplot1
+  
+  ###
+  
+transveg5_delta_df_hour %>%
+  tidyr::pivot_longer(cols = paste0("hour_", 14:22),
+                      names_to = "hour",
+                      values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  filter(value < 0) %>%
+  mutate(hour = factor(hour, levels = paste0("hour_", 7:22), ordered = TRUE)) %>%
+  arrange(value) %>%
+  mutate(x = 1:length(value)) %>%
+  ggplot(aes(x = hour, y = value, fill = hour, color = hour)) +
+  geom_dotplot(binaxis = 'y',
+               stackdir = 'center',
+               stackratio = 0.2,
+               dotsize = 0.5,
+               position = "jitter",
+               method = "histodot") +
+  ggtitle(paste0(i + 6, "h00")) +
+  theme_minimal() +
+  theme(legend.position="none",
+        plot.title = element_text(hjust = 0.5)) -> temppointplot2
+  
+  
+  
+  print(temppointplot1)
+  print(temppointplot2)
+
+  
+  # eventueel afronding aanpassen?
+
+
+```
+*first univariate clustering (kmeans) is carried out to identify two clusters (direct shade effect and indirect shade effects). When the two clusters are within 1 °C of each other they are classified as the same cluster, there is no direct shading effect leading to a decrease in Tmrt (as is the case at 7h00 and between 20h00 and 22h00)
+
+-   Global:
+
+    -   min and max Tmrt
+
+    -   min and max delta_Tmrt
+
+    -   #pixels with significant cooling & average significant cooling value
+
+
+```{r echo = FALSE}
+
+
+# https://www.datanovia.com/en/lessons/k-means-clustering-in-r-algorith-and-practical-examples/
+# univariate clustering
+
+shade_list_output <- suppressMessages(shade_analyser(transveg5_delta_df_hour, scenario_name = "transveg5"))
+
+full_delta_Tmrt_shade_hour <- shade_list_output[[1]]
+
+full_delta_Tmrt_shade_hour %>%
+  ggplot(aes(x = hour, y = value, fill = mm, color = mm)) +
+  geom_dotplot(binaxis = 'y',
+               stackdir = 'center',
+               stackratio = 0.2,
+               dotsize = 0.5,
+               position = "jitter",
+               method = "histodot") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_x_discrete(labels = c(7:22)) +
+  facet_wrap(~hour) -> shadepixelplot
+
+suppressWarnings(print(shadepixelplot))
+
+delta_Tmrt_shade_hour <- shade_list_output[[2]]
+delta_Tmrt_shade_day <- shade_list_output[[3]]
+
+print(delta_Tmrt_shade_hour)
+print(delta_Tmrt_shade_day)
+
+```
+
+
+## 3. Comparing scenarios: 5, 10, 15, ..., 50% transmission
+
+### Figures:
+
+-   average delta_Tmrt street raster plot: 5 vs 25 vs 50% transmission [MAP]
+
+-   density plots of delta_Tmrt
+
+### Tables:
+
+-   per scenario:
+
+    -   count of pixels per interval [-20 \<\> -17.5], ..., -[2.5 \<\> 0], [\>0] (color mapped)
+
+    -   min and max Tmrt
+
+    -   min and max delta_Tmrt
+
+    -   #pixels with significant cooling
+    
+```{r echo = FALSE, results = "hide"}
+
+overview_scenario <- data.frame(scenario = 1:length(length(raster_list_full)-1),
+                                delta_Tmrt_mean = 1:length(length(raster_list_full)-1), 
+                                n_shade_pixels = 1:length(length(raster_list_full)-1),
+                                weighed_Tmrt = 1:length(length(raster_list_full)-1))
+
+for (N in 1:(length(raster_list_full)-1)) {
+ 
+  #parameter is transveg here
+  raster_list_parameter <- raster_list_full[[N + 1]]
+  raster_list_notree <- raster_list_full[[1]]
+  
+  raster_list_delta <- list()
+  
+  for (j in 1:length(raster_list_parameter)) {
+    raster_list_delta[[j]] <- raster_list_parameter[[j]] - raster_list_notree[[j]]
+  }
+  
+  #raster to df
+  delta_df_hour <- rasterlist_to_df(raster_list_delta)
+  
+  #shade analyser
+  shade_list_output <- suppressMessages(shade_analyser(delta_df_hour, scenario_name = paste0("transveg", 5 + (N-1)*5)))
+  
+  #weighed Tmrt score calculation (#pixels * delta Tmrt)
+  weighed_Tmrt_score <- sum(shade_list_output[[2]][1,3:18]*shade_list_output[[2]][2,3:18], na.rm = TRUE)
+  
+  overview_scenario[N,] <- c(shade_list_output[[3]][1,], weighed_Tmrt_score)
+  
+  # print(paste0(N, "/", length(raster_list_full)-1))
+}
+
+print(overview_scenario)
+
+```
+
+```{r}
+
+source("functions/delta_hour_plotting.R")
+source("functions/raster_list_to_delta_df.R")
+
+
+
+# scenario selecteren
+for (i in 1:(length(raster_list_full)-1)) {
+  
+  print(i)
+  
+  scenario <- names(raster_list_full)[i+1]
+  print(scenario)
+  
+  delta_df <- raster_list_to_delta_df(raster_list_full, scenario)
+  
+  p <- delta_hour_plotting(delta_df, scenario)
+  
+  p + ggtitle(paste0("Scenario: ", scenario)) -> p
+  
+  ggsave(paste0("figures/", scenario, "_deltaT.png"), 
+       p,
+       bg = "white", 
+       dpi = 300)
+  
+}
+
+
+```
+
+
+
+```{r}
+
+# transveg = 5%
+
+full_delta_Tmrt_shade_hour %>%
+  filter(scenario == "transveg5") %>%
+  filter(mm == "shade") %>%
+  ggplot(aes(x = value, y = hour, fill = stat(x))) +
+  geom_density_ridges_gradient(
+    aes(point_fill = stat(x),
+        point_colour = stat(x)),
+    rel_min_height = 0.01,
+    scale = 2,
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0, yoffset = -0.1),
+    point_shape = '|',
+    point_size = 1, 
+    point_alpha = 0.3, 
+    alpha = 0.7
+  ) +
+  theme_minimal() +
+  scale_fill_gradientn(colours = c("blue2", "green3", "white"),
+                       limits = c(-30,1),
+                       aesthetics = c("colour", "fill", "point_fill", "point_colour")) -> p
+  
+  
+p +
+  geom_point(data = full_delta_Tmrt_shade_hour %>%
+               filter(scenario == "transveg5") %>%
+               filter(mm == "sun") %>%
+               sample_frac(1),
+             shape = "|",
+             alpha = 0.7,
+             colour = "grey") +
+  scale_y_discrete(labels = paste(7:22, ":00", sep = "")) +
+  guides(colour = "none",
+         point_fill = "none",
+         point_colour = "none") +
+  labs(fill = expression(Delta*"T"["MRT"]),
+       y = '',
+       x = expression(Delta*"T"["MRT"])) -> p1
+
+print(p1)
+
+ggsave("figures/transveg5_deltaT.png", 
+       p1,
+       bg = "white", 
+       dpi = 300)
+
+### samenvattende figuur: alle uren samen
+
+full_delta_Tmrt_shade_hour %>%
+  filter(scenario == "transveg5") %>%
+  filter(mm == "shade") %>%
+  mutate(daytime_average = "full") %>%
+  ggplot(aes(x = value, y = daytime_average, fill = stat(x))) +
+  geom_density_ridges_gradient(
+    aes(point_fill = stat(x),
+        point_colour = stat(x)),
+    rel_min_height = 0.01,
+    scale = 2,
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0, yoffset = -0.1),
+    point_shape = '|',
+    point_size = 1, 
+    point_alpha = 0.3, 
+    alpha = 0.7
+  ) +
+  theme_minimal() +
+  scale_fill_gradientn(colours = c("blue2", "green3", "white"),
+                       limits = c(-30,1),
+                       aesthetics = c("colour", "fill", "point_fill", "point_colour")) -> p_full
+  
+  
+p_full +
+  geom_point(data = full_delta_Tmrt_shade_hour %>%
+               filter(scenario == "transveg5") %>%
+               filter(mm == "sun") %>%
+               mutate(daytime_average = "full") %>%
+               sample_frac(0.1),
+             shape = "|",
+             alpha = 0.7,
+             colour = "grey") +
+  scale_y_discrete(labels = paste(7:22, ":00", sep = "")) +
+  guides(colour = "none",
+         point_fill = "none",
+         point_colour = "none") +
+  labs(fill = expression(Delta*"T"["MRT"]),
+       y = '',
+       x = expression(Delta*"T"["MRT"])) -> p1_full
+
+
+
+
+
+ggsave("figures/transveg5_deltaT_full.png", 
+       p1_full,
+       bg = "white", 
+       dpi = 300)
+
+
+```
+
+
+
+
+
+
+```{r}
+
+# Move to a new page
+grid.newpage()
+# Create layout : nrow = 2, ncol = 1
+pushViewport(viewport(layout = grid.layout(1, 2)))
+print(p1, vp = define_region(2, 1))
+print(p1_full, vp = define_region(2, 2))
+
+grid.arrange(p1, p1_full, 
+             nrow = 2,
+             heights=c(16, 1)) -> tempfull
+
+ggsave("figures/transveg5_deltaT_fullfull.png", 
+       tempfull,
+       bg = "white", 
+       dpi = 300)
+
+
+plot_grid(p1, p1_full, 
+          nrow = 2, 
+          align = "h",
+          rel_heights = c(16, 1))
+
+```
+
+
+
+```{r}
+
+```
+ 
+ 
+ 
+ 
+    
+    

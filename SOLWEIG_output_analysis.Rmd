@@ -1,0 +1,694 @@
+---
+title: "solweig_output_analysis"
+author: "Todi Daelman"
+date: "2024-01-26"
+output: html_documents
+---
+
+```{r setup, include=FALSE}
+library(lidR)
+library(raster)
+library(rgl)          #3D plotting
+library(rasterVis)    #3D plotting of a raster
+library(plot3D)
+library(sf)
+library(terra)
+library(dplyr)
+library(lubridate)    #date handeling
+library(ggnewscale)   #introduce new color scale in plots 
+library(ggplot2)      #
+library(patchwork)    #stick different plots to each other
+library(animation)
+library(viridis)
+library(cowplot)      #adding title to combined plots with plot_grid
+library(egg)          #ggcombine function
+library(ggpubr)       #annotate_figure function
+
+source("functions/mrt_average.r")
+source("functions/gplot_data.r")
+source("functions/mrt_cropping.r")
+source("functions/mrt_plotting_vegtrans.r")
+```
+
+```{r setting paths and loading in files}
+
+simulation_output_folder <- "C:/Users/todaelma/OneDrive - UGent/Documents/PhD/QGIS/SOLWEIG/test-Gent/generated SOLWEIG input/kareldierickx/solweig_output/simulation_output"
+clip_extent_path <- "C:/Users/todaelma/OneDrive - UGent/Documents/PhD/QGIS/SOLWEIG/test-Gent/generated SOLWEIG input/kareldierickx/street_extent.shp"
+
+DSM_background <- raster("C:/Users/todaelma/OneDrive - UGent/Documents/PhD/QGIS/SOLWEIG/test-Gent/generated SOLWEIG input/kareldierickx/DSM.tif")
+DSM_background_df <- gplot_data(DSM_background)
+
+clip_extent <- st_read(clip_extent_path) 
+
+```
+
+
+```{r 1300 analysis}
+
+# Analysis at 1300 
+
+# Get the list of all folders starting with "simulation_"
+folder_list_unfiltered <- list.dirs(path = simulation_output_folder, full.names = TRUE, recursive = FALSE)
+
+folder_list <- folder_list_unfiltered[grep("transveg", folder_list_unfiltered)]
+
+# Extract numeric values from folder names
+numeric_values <- as.numeric(sub(".*simulation_transveg_(\\d+)$", "\\1", folder_list))
+
+# Order the folder list based on numeric values
+folder_list <- folder_list[order(numeric_values)]
+
+# add basecase first
+# Find the index of the folder containing "no_trees"
+index_no_trees <- grep("no_trees2", folder_list_unfiltered)
+folder_list <- c(folder_list_unfiltered[index_no_trees], folder_list)
+
+# Initialize an empty list to store the rasters
+raster_list <- list()
+
+# Loop over each folder
+for (folder in folder_list) {
+  # Get the list of .tif files containing 1300 in the name
+  tif_files_1300 <- list.files(path = folder, pattern = "1300", full.names = TRUE)
+  
+  # Get the list of .tif files containing Tmrt in the name
+  tif_files_Tmrt <- list.files(path = folder, pattern = "Tmrt", full.names = TRUE)
+  
+  # Find the common files
+  tif_files <- intersect(tif_files_1300, tif_files_Tmrt)
+  tif_files <- tif_files[endsWith(tif_files, ".tif")]
+  
+  print(folder)
+  # Loop over each .tif file
+  for (tif_file in tif_files) {
+    # Read the raster file
+    raster <- raster(tif_file)
+    
+    # Read the buildings raster file
+    buildings_raster <- raster(file.path(folder, "buildings.tif"))
+    
+    # Set the cells corresponding to buildings (value 0) to NA
+    raster[buildings_raster[] == 0] <- NA
+    
+    # Clip the raster to the extent of the shapefile
+    # clipped_raster <- crop(raster, extent(clip_extent))
+    masked_raster <- mask(raster, clip_extent)
+    
+    # Add the clipped raster to the list
+    raster_list[[length(raster_list) + 1]] <- masked_raster
+    
+    print(tif_file)
+  }
+}
+
+raster_1300_list <- raster_list
+
+```
+
+```{r old plotting test 1}
+
+DSM_background <- raster("C:/Users/todaelma/OneDrive - UGent/Documents/PhD/QGIS/SOLWEIG/test-Gent/generated SOLWEIG input/kareldierickx/DSM.tif")
+
+# Set the layout for the plots (2 rows, 2 columns)
+par(mfrow = c(2, 2))
+
+# Plot the rasters
+for (i in 1:length(raster_list)) {
+  
+  if (i == 1) {
+    plot(DSM_background, main = paste("Basecase, no trees"), col = grey.colors(100), legend = FALSE)
+    plot(raster_list[[i]], add = TRUE, col = heat.colors(20))
+  } else {
+    plot(DSM_background, main = paste("Transmission Vegetation =", (i-1)*5 + 5, "%"), col = grey.colors(100), legend = FALSE)
+    plot(raster_list[[i]], add = TRUE, col = heat.colors(20))
+    
+  }
+  
+  
+  
+  # Save the plot as PNG
+  png(filename = paste("Raster", i, "_plot.png"))
+  dev.off()
+}
+
+```
+
+```{r old plotting (ggplot) test 2}
+library(ggplot2)
+
+
+ggplot() +
+  geom_raster(data = as.data.frame(DSM_background, xy = TRUE), aes(x = x, y = y, fill = DSM)) +
+  scale_fill_gradientn(colours = grey.colors(100)) +
+  theme_void() +
+  ggtitle("Transmission Vegetation = 5%")
+
+# Loop through other rasters and add them to the ggplot
+for (i in 1:length(raster_list)) {
+  ggplot() +
+    geom_raster(data = as.data.frame(raster_list[[i]], xy = TRUE), aes(x = x, y = y, fill = Tmrt_2023_189_1300D)) +
+    scale_fill_gradientn(colours = heat.colors(20)) +
+    theme_void() +
+    ggtitle(paste("Transmission Vegetation =", (i-1)*5 + 5, "%"))
+}
+```
+
+
+```{r Tmrt 1300 maps}
+
+#plotting function
+ggplot_list_1300 <- mrt_plotting_vegtrans(raster_1300_list, DSM_background)
+
+# Add a title
+title_1300 <- text_grob("8-7-2023 | 13h00", face = "bold", size = 14)
+
+combined_1300_1_4 <- annotate_figure(ggarrange(ggplot_list_1300[[1]],
+                                               ggplot_list_1300[[2]],
+                                               ggplot_list_1300[[3]],
+                                               ggplot_list_1300[[4]],
+                                               common.legend = TRUE,
+                                               legend = "bottom"),
+                                     top = title_1300)
+
+combined_1300_5_8 <- annotate_figure(ggarrange(ggplot_list_1300[[5]],
+                                               ggplot_list_1300[[6]],
+                                               ggplot_list_1300[[7]],
+                                               ggplot_list_1300[[8]],
+                                               common.legend = TRUE,
+                                               legend = "bottom"),
+                                     top = title_1300)
+
+combined_1300_9_11 <- annotate_figure(ggarrange(ggplot_list_1300[[9]],
+                                               ggplot_list_1300[[10]],
+                                               ggplot_list_1300[[11]],
+                                               common.legend = TRUE,
+                                               legend = "bottom"),
+                                     top = title_1300)
+
+
+ggsave("figures/transveg_1300_1_4_title.png", 
+       combined_1300_1_4,
+       bg = "white", 
+       dpi = 300)
+ggsave("figures/transveg_1300_5_7_title.png", 
+       combined_1300_5_8,
+       bg = "white", 
+       dpi = 300)
+ggsave("figures/transveg_1300_9_11_title.png", 
+       combined_1300_9_11,
+       bg = "white",
+       dpi = 300)
+
+```
+
+
+
+```{r average TMRT maps}
+
+clip_extent_path <- "C:/Users/todaelma/OneDrive - UGent/Documents/PhD/QGIS/SOLWEIG/test-Gent/generated SOLWEIG input/kareldierickx/street_extent.shp"
+
+simulation_output_folder <- simulation_output_folder
+clip_extent <- st_read(clip_extent_path)
+
+mrt_average_raster_list <- mrt_average(simulation_output_folder = simulation_output_folder,
+                                      clip_extent = clip_extent,
+                                      search_variable = "transveg",
+                                      time_of_interest = "D")
+
+raster_list <- mrt_average_raster_list
+
+#plotting of street mrt values on DSM background
+for (i in 1:length(raster_list)) {
+  raster_i_df <- gplot_data(raster_list[[i]])
+  print(i)
+  if (i == 1) {
+    
+    ggplot_list[[i]] <- ggplot(mapping = aes(x, y)) +
+      geom_tile(data = dplyr::filter(DSM_background_df,!is.na(value)), aes(fill = value)) +
+      scale_fill_gradientn(colours = grey.colors(100), guide = 'none') +
+      theme(legend.position = "none") +
+      new_scale_fill() +
+      geom_tile(data = dplyr::filter(raster_i_df,!is.na(value)), aes(fill = value)) +
+      scale_fill_viridis(option = "inferno",
+                           limits = c(28, 45)) +
+      labs(fill = "Tmrt (°C)") +
+      theme_void() +
+      ggtitle("No vegetation (08-07-2023)") +
+      theme(plot.title = element_text(hjust = 0.5,
+                                      margin = margin(b = -5)))
+    
+  } else {
+    ggplot_list[[i]] <- ggplot(mapping = aes(x, y)) +
+      geom_tile(data = dplyr::filter(DSM_background_df, !is.na(value)), aes(fill = value)) +
+      scale_fill_gradientn(colours = grey.colors(100), guide = 'none') +
+      theme(legend.position = "none") +
+      new_scale_fill() +
+      geom_tile(data = dplyr::filter(raster_i_df, !is.na(value)), aes(fill = value)) +
+      scale_fill_viridis(option = "inferno",
+                           limits = c(28, 45)) +
+      labs(fill = "Tmrt (°C)") +
+      theme_void() +
+      ggtitle(paste("Transmission =", (i-2) * 5 + 5, "% (08-07-2023)")) +
+      theme(plot.title = element_text(hjust = 0.5,
+                                      margin = margin(b = -5))) 
+  }
+  
+}
+
+combined_plot1_4 <- wrap_plots(ggplot_list[1:4], ncol = 2)
+combined_plot5_8 <- wrap_plots(ggplot_list[5:8], ncol = 2)
+combined_plot9_11 <- wrap_plots(ggplot_list[9:11], ncol = 2)
+
+ggsave("figures/transveg_av_1_4.png", combined_plot1_4)
+ggsave("figures/transveg_av_5_7.png", combined_plot5_8)
+ggsave("figures/transveg_av_9_11.png", combined_plot9_11)
+
+```
+```{r average vs notrees plotten}
+
+mrt_average_delta_list <- list()
+
+for (i in 1:length(mrt_average_raster_list)) {
+  mrt_average_delta_list[[i]] <- mrt_average_raster_list[[i]] - mrt_average_raster_list[[1]]
+} 
+mrt_average_delta_list[[1]] <- mrt_average_raster_list[[1]]
+
+raster_list <- mrt_average_delta_list
+
+
+# plotting of street mrt values on DSM background
+for (i in 1:length(raster_list)) {
+  raster_i_df <- gplot_data(raster_list[[i]])
+  print(i)
+  if (i == 1) {
+    
+    ggplot_list[[i]] <- ggplot(mapping = aes(x, y)) +
+      geom_tile(data = dplyr::filter(DSM_background_df,!is.na(value)), aes(fill = value)) +
+      scale_fill_gradientn(colours = grey.colors(100), guide = 'none') +
+      theme(legend.position = "none") +
+      new_scale_fill() +
+      geom_tile(data = dplyr::filter(raster_i_df,!is.na(value)), aes(fill = value)) +
+      scale_fill_viridis(option = "inferno",
+                           limits = c(28,45)) +
+      labs(fill = "Tmrt (°C)") +
+      theme_void() +
+      ggtitle("No vegetation (08-07-2023)") +
+      theme(plot.title = element_text(hjust = 0.5,
+                                      margin = margin(b = -5)))
+    
+  } else {
+    ggplot_list[[i]] <- ggplot(mapping = aes(x, y)) +
+      geom_tile(data = dplyr::filter(DSM_background_df, !is.na(value)), aes(fill = value)) +
+      scale_fill_gradientn(colours = grey.colors(100), guide = 'none') +
+      theme(legend.position = "none") +
+      new_scale_fill() +
+      geom_tile(data = dplyr::filter(raster_i_df, !is.na(value)), aes(fill = value)) +
+      scale_fill_gradientn(colours = c("blue", "white"),
+                           limits = c(-7, 0.5)) +
+      labs(fill = "Tmrt (°C)") +
+      theme_void() +
+      ggtitle(paste("Transmission =", (i-2) * 5 + 5, "% (08-07-2023)")) +
+      theme(plot.title = element_text(hjust = 0.5,
+                                      margin = margin(b = -5))) 
+  }
+  
+}
+
+combined_plot1_4 <- wrap_plots(ggplot_list[1:4], ncol = 2)
+combined_plot5_8 <- wrap_plots(ggplot_list[5:8], ncol = 2)
+combined_plot9_11 <- wrap_plots(ggplot_list[9:11], ncol = 2)
+
+ggsave("figures/transveg_avdelta_1_4.png", combined_plot1_4)
+ggsave("figures/transveg_avdelta_5_7.png", combined_plot5_8)
+ggsave("figures/transveg_avdelta_9_11.png", combined_plot9_11)
+
+
+```
+
+
+```{r full cropping of Tmrt}
+raster_list_full <- mrt_cropping(simulation_output_folder, clip_extent, search_variable = "transveg", time_of_interest = "D")
+
+```
+
+
+```{r comparing  no trees vs 5%: average}
+
+raster_list_notree <- raster_list_full[[1]]
+raster_list_transveg <- raster_list_full[[2]]
+
+
+ggplot_list <- list()
+j <- 1
+
+#plotting of street mrt values on DSM background
+for (i in 1:length(raster_list_notree)) {
+  raster_notree_i_df <- gplot_data(raster_list_notree[[i]])
+  raster_transveg_i_df <- gplot_data(raster_list_transveg[[i]])
+  
+  ggplot_list[[j]] <- ggplot(mapping = aes(x, y)) +
+    geom_tile(data = dplyr::filter(DSM_background_df,!is.na(value)), aes(fill = value)) +
+    scale_fill_gradientn(colours = grey.colors(100), guide = 'none') +
+    theme(legend.position = "none") +
+    new_scale_fill() +
+    geom_tile(data = dplyr::filter(raster_notree_i_df,!is.na(value)), aes(fill = value)) +
+    scale_fill_viridis(option = "inferno",
+                       limits = c(15, 70)) +
+    labs(fill = "Tmrt (°C)") +
+    theme_void() +
+    ggtitle(paste("")) +
+    theme(plot.title = element_text(hjust = 0.5,
+                                    margin = margin(b = -5)))
+  j <- j + 1
+  
+  ggplot_list[[j]] <- ggplot(mapping = aes(x, y)) +
+    geom_tile(data = dplyr::filter(DSM_background_df,!is.na(value)), aes(fill = value)) +
+    scale_fill_gradientn(colours = grey.colors(100), guide = 'none') +
+    theme(legend.position = "none") +
+    new_scale_fill() +
+    geom_tile(data = dplyr::filter(raster_transveg_i_df,!is.na(value)), aes(fill = value)) +
+   scale_fill_viridis(option = "inferno",
+                       limits = c(15, 70)) +
+    labs(fill = "Tmrt (°C)") +
+    theme_void() +
+    ggtitle(paste("")) +
+    theme(plot.title = element_text(hjust = 0.5,
+                                    margin = margin(b = -5)))
+  j <- j + 1
+  
+}
+  
+combined_plot1_16 <- wrap_plots(ggplot_list[1:16], ncol = 2)
+combined_plot17_32 <- wrap_plots(ggplot_list[17:32], ncol = 2)
+
+ggsave("figures/notrees_vs_5%_1_16.png", combined_plot1_16,
+       width = 20,
+       height = 80,
+       units = 'cm')
+
+ggsave("figures/notrees_vs_5%_17_32.png", combined_plot17_32,
+       width = 20,
+       height = 80,
+       units = 'cm')
+
+
+
+```
+
+
+```{r full list with all rasters}
+
+raster_list_full <- mrt_cropping(simulation_output_folder, clip_extent, search_variable = "transveg", time_of_interest = "D")
+
+```
+
+
+```{r explorative analysis: gathering all the data}
+
+#dividing into 
+
+
+#initialise data frame min max
+minmax_full <- data.frame(matrix(NA, 
+                                 nrow = 2, 
+                                 ncol = length(raster_list_full) - 1))
+
+rownames(minmax_full) <- c("min", "max")
+colnames(minmax_full) <- paste0("transveg", seq(5,50,5))
+
+#initialise data frame classes
+
+breaks <- c(seq(-30, 0, 2.5), 1)
+lowerclass <- seq(-30, 0, 2.5)
+upperclass <- c(seq(-27.5, 0, 2.5), 1)
+
+interval_full <- data.frame(matrix(NA,
+                                   nrow = length(breaks) - 1,
+                                   ncol = length(raster_list_full) - 1))
+
+colnames(interval_full) <- paste0("transveg", seq(5,50,5))
+
+#initialise data frame total values
+
+#initialise list all per hour
+transveg_delta_list <- list()
+
+#initialise iterating delta raster
+delta <- list()
+
+#initialising inside of the loop when length of dataframe is known
+rm(values_full)
+rm(values_hour)
+
+
+# iterate over the different scenarios
+for (i in 1:(length(raster_list_full)-1)) {
+  
+  raster_list_notree <- raster_list_full[[1]]
+  raster_list_transveg_i <- raster_list_full[[i+1]]
+  
+  max_total <- 0
+  min_total <- 0
+  
+  interval_j <- 0*(1:(length(breaks) - 1))
+  
+  values_j <- c()
+  
+  #iterate over the hours in each scenario
+  for (j in 1:length(raster_list_transveg_i)) {
+    
+    delta[[j]] <- raster_list_transveg_i[[j]] - raster_list_notree[[j]]
+    
+    df_j <- gplot_data(delta[[j]]) 
+    # print(j)
+    
+    max_j <- max(na.omit(df_j$value))
+    min_j <- min(na.omit(df_j$value))
+    
+    if (max_j > max_total) {
+      max_total <- max_j
+    }
+    
+    if (min_j < min_total) {
+      min_total <- min_j
+    }
+    
+    interval_j <- data.frame(table(cut(df_j$value, breaks = breaks, include.lowerclass = FALSE)))$Freq + interval_j
+    values_j <- c(values_j, df_j$value)
+    
+    
+  }
+  
+  
+  if (!exists("values_full")) {
+    values_full <- data.frame(matrix(
+      NA,
+      nrow = length(values_j),
+      ncol = length(raster_list_full) - 1
+    ))
+    colnames(values_full) <- paste0("transveg", seq(5, 50, 5))
+  }
+  
+  minmax_full[i] <- c(min_total, max_total)
+  interval_full[i] <- interval_j
+  values_full[i] <- values_j
+  transveg_delta_list[[i]] <- values_hour
+  
+  print(paste0(i, "/", length(raster_list_full)-1, " done"))
+
+  }
+
+interval_full <- mutate(interval_full, interval = paste0("> ", lowerclass, " <= ", upperclass)) %>%
+  select(interval, everything())
+
+print(minmax_full)
+print(interval_full)
+
+```
+
+
+
+```{r plotting: continuous}
+
+### complete day cooling
+
+#all deltas
+
+values_full %>% 
+  tidyr::pivot_longer(cols = ends_with("5"),
+                      names_to = "scenario",
+                      values_to = "value") %>%
+  select(scenario, value) %>%
+  filter(!is.na(value)) %>%
+  mutate(scenario = factor(scenario, levels = rev(unique(scenario)), ordered = TRUE)) %>%
+  ggplot() + geom_density(aes(x = value, fill = scenario), alpha = 0.6)
+
+
+#only < -1°C
+
+values_full %>% 
+  tidyr::pivot_longer(cols = everything(),
+                      names_to = "scenario",
+                      values_to = "value") %>%
+  select(scenario, value) %>%
+  filter(!is.na(value)) %>%
+  filter(value < -1) %>%
+  mutate(scenario = factor(scenario, levels = rev(unique(scenario)), ordered = TRUE)) %>%
+  ggplot() + geom_density(aes(x = value, fill = scenario), alpha = 0.4) +
+  theme_minimal() +
+  scale_fill_viridis(discrete = TRUE)
+
+
+#only > -1°C
+
+values_full %>% 
+  tidyr::pivot_longer(cols = everything(),
+                      names_to = "scenario",
+                      values_to = "value") %>%
+  select(scenario, value) %>%
+  filter(!is.na(value)) %>%
+  filter(value > -1) %>%
+  mutate(scenario = factor(scenario, levels = rev(unique(scenario)), ordered = TRUE)) %>%
+  ggplot() + geom_density(aes(x = value, fill = scenario), alpha = 0.4) +
+  theme_minimal() +
+  scale_fill_viridis(discrete = TRUE)
+
+### per hour cooling
+
+#item 1 of the list = 5%
+#item 10 of the list = 50%
+
+transveg_delta_list[[1]] %>%
+  
+
+
+
+```
+
+```{r}
+values_full %>% 
+  tidyr::pivot_longer(cols = everything(),
+                      names_to = "scenario",
+                      values_to = "value") %>%
+  select(scenario, value) %>%
+  filter(!is.na(value)) %>%
+  mutate(scenario = factor(scenario, levels = rev(unique(scenario)), ordered = TRUE)) %>%
+  filter(value < -2.5) %>%
+  group_by(scenario) %>%
+  summarise(mean_delta = mean(value))
+
+
+
+```
+
+
+
+```{r tables and plotting: interval (old)}
+
+#table frequencies
+
+ntotal <- colSums(interval_full[2:11])
+
+freqtable <- data.frame(round(interval_full[2:11]/ntotal*100, 2)) %>%
+  mutate(interval = interval_full$interval) %>%
+  select(interval, everything())
+
+
+freqtable2 <- bind_rows(freqtable[1:12,], as.data.frame(c("> -2,5", freqtable[13, 2:11] + freqtable[12, 2:11]), col.names = names(freqtable)))
+
+#plots of the different intervals
+
+# only < -2,5°C
+
+interval_full %>%
+  mutate(interval = factor(interval, levels = unique(interval), ordered = TRUE)) %>%
+  select(interval, ends_with("5")) %>%
+  filter(!(interval %in% levels(interval)[12:13])) %>%
+  tidyr::pivot_longer(cols = ends_with("5"),
+                      names_to = "scenario",
+                      values_to = "count") %>%
+  mutate(scenario = factor(scenario, levels = rev(unique(scenario)), ordered = TRUE)) %>%
+  ggplot() + 
+  geom_col(aes(x = interval, y = count, fill = scenario),
+                          position = "dodge") +
+  scale_fill_viridis(discrete = TRUE)
+  
+  
+  scale_fill_brewer(palette = "Greens")
+
+# only > -2,5 °C 
+
+interval_full %>%
+  mutate(interval = factor(interval, levels = unique(interval), ordered = TRUE)) %>%
+  select(interval, ends_with("5")) %>%
+  filter((interval %in% levels(interval)[12:13])) %>%
+  tidyr::pivot_longer(cols = ends_with("5"),
+                      names_to = "scenario",
+                      values_to = "count") %>%
+  mutate(scenario = factor(scenario, levels = rev(unique(scenario)), ordered = TRUE)) %>%
+  ggplot() + geom_col(aes(x = interval, y = count, fill = scenario),
+                          position = "dodge")
+
+# continuous
+
+
+
+
+```
+
+
+
+
+```{r sensitivity of tree-shade: per hour}
+
+raster_list_full <- mrt_cropping(simulation_output_folder, clip_extent, search_variable = "transveg", time_of_interest = "D")
+
+raster_list_notree <- raster_list_full[[1]]
+raster_list_transveg5 <- raster_list_full[[2]]
+
+raster_list_transveg5_delta <- list()
+
+for (i in 1:length(raster_list_notree)) {
+  raster_list_transveg5_delta[[i]] <-  raster_list_transveg5[[i]] - raster_list_notree[[i]]
+}
+
+raster_list <- raster_list_transveg5_delta
+
+ggplot_list <- list()
+
+for (i in 1:length(raster_list)) {
+  raster_i_df <- gplot_data(raster_list[[i]])
+  print(i)
+  
+    ggplot_list[[i]] <- ggplot(mapping = aes(x, y)) +
+      geom_tile(data = dplyr::filter(DSM_background_df, !is.na(value)), aes(fill = value)) +
+      scale_fill_gradientn(colours = grey.colors(100), guide = 'none') +
+      theme(legend.position = "none") +
+      new_scale_fill() +
+      geom_tile(data = dplyr::filter(raster_i_df, !is.na(value)), aes(fill = value)) +
+      scale_fill_gradientn(colours = c("blue", "white")) +
+      labs(fill = "Tmrt (°C)") +
+      theme_void() +
+      ggtitle(paste("Time = XXhXX")) +
+      theme(plot.title = element_text(hjust = 0.5,
+                                      margin = margin(b = -5))) 
+
+}
+
+combined_plot1 <- wrap_plots(ggplot_list[8:12], ncol = 1)
+
+
+# extra schaduw tussen tree vs no tree = treeshade
+
+# Define the breaks for the groups
+
+
+
+
+
+# die pixels opslaan
+
+# gemiddelde schaduwpixel bepalen
+
+```
+

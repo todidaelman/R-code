@@ -1,0 +1,126 @@
+---
+title: "kareldierickx_rotation_analyse_transveg"
+author: "Todi Daelman"
+date: "2024-02-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
+# options(paged.print=FALSE) #output of tables as in console and not as tibble
+
+library(lidR)
+library(raster)
+library(rgl)          #3D plotting
+library(rasterVis)    #3D plotting of a raster
+library(plot3D)
+library(sf)
+library(terra)
+library(dplyr)
+library(lubridate)    #date handeling
+library(ggnewscale)   #introduce new color scale in plots 
+library(ggplot2)      #
+library(patchwork)    #stick different plots to each other
+library(animation)
+library(viridis)
+library(cowplot)      #adding title to combined plots with plot_grid
+library(egg)          #ggcombine function
+library(ggpubr)       #annotate_figure function
+library(purrr)
+library(factoextra)   #visualising clusters
+library(ggridges)     #ridgeline plots
+library(grid)         #combining plots
+
+source("../functions/mrt_average.r")
+source("../functions/gplot_data.r")
+source("../functions/mrt_cropping.r")
+source("../functions/mrt_plotting_vegtrans.r")
+source("../functions/rasterlist_to_df.r")
+source("../functions/shade_analyser.r")
+source("../functions/delta_hour_plotting.R")
+source("../functions/raster_list_to_delta_df.R")
+```
+
+
+```{r}
+
+rotation_folder_path <- "C:/Users/todaelma/OneDrive - UGent/Documents/PhD/QGIS/SOLWEIG/test-Gent/generated SOLWEIG input/kareldierickx_rotation/r_120"
+
+simulation_output_folder <- file.path(rotation_folder_path, "solweig_output/simulation_output")
+
+street_extent_path <- file.path(rotation_folder_path, "street_raster.tif")
+street_extent <- raster(street_extent_path) #used to be clip_extent, a shp file
+# clip_extent <- st_read(clip_extent_path) 
+
+DSM_background_path <- file.path(rotation_folder_path, "DSM.tif")
+DSM_background <- raster(DSM_background_path)
+
+DSM_background_df <- gplot_data(DSM_background)
+
+
+
+```
+
+
+```{r}
+raster_list_full <- mrt_cropping(simulation_output_folder, clip_extent, search_variable = "transveg", time_of_interest = "D")
+```
+
+
+```{r}
+# scenario selecteren
+
+# Get the list of all folders starting with "simulation_"
+
+rotation_folder_path <- "C:/Users/todaelma/OneDrive - UGent/Documents/PhD/QGIS/SOLWEIG/test-Gent/generated SOLWEIG input/kareldierickx_rotation"
+
+
+folder_list <- list.dirs(path = rotation_folder_path, full.names = TRUE, recursive = FALSE)
+
+# Extract numerical value from folder names
+numeric_values <- as.numeric(gsub(".*r_(\\d+)$", "\\1", folder_list))
+
+# Order the folder list based on numeric values
+folder_list <- folder_list[order(numeric_values)]
+
+for (rotation_folder in folder_list){
+  
+  rotation_angle <- gsub(".*r_(\\d+)$", "\\1", rotation_folder)
+  folder_name <- gsub(".*/([^/]+)/?$", "\\1", rotation_folder)
+  
+  # Create the folder path
+  figure_output_folder <- file.path("figures", "rotation", folder_name)
+  
+  simulation_output_folder <- file.path(rotation_folder, "solweig_output/simulation_output")
+  
+  raster_list_full <- mrt_cropping(simulation_output_folder, street_extent, search_variable = "transveg", time_of_interest = "D")
+  
+  for (i in 1:(length(raster_list_full)-1)) {
+    
+    print(i)
+    
+    scenario <- names(raster_list_full)[i+1]
+    print(scenario)
+    
+    delta_df <- raster_list_to_delta_df(raster_list_full, scenario)
+    
+    p <- delta_hour_plotting(delta_df, scenario)
+    
+    p + ggtitle(paste0("Street angle: ", rotation_angle-30 ,"° ", "- Scenario: ", scenario)) -> p
+    
+    ggsave(paste0(figure_output_folder, "/", scenario, "_deltaT.png"), 
+         p,
+         bg = "white", 
+         dpi = 300)
+    
+  }
+  
+  
+  
+}
+
+
+
+```
+
