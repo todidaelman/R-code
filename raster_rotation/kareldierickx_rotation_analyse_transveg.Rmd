@@ -64,7 +64,7 @@ DSM_background_df <- gplot_data(DSM_background)
 
 
 ```{r}
-raster_list_full <- mrt_cropping(simulation_output_folder, clip_extent, search_variable = "transveg", time_of_interest = "D")
+raster_list_full <- mrt_cropping(simulation_output_folder, street_extent, search_variable = "transveg", time_of_interest = "D")
 ```
 
 
@@ -86,15 +86,20 @@ folder_list <- folder_list[order(numeric_values)]
 
 for (rotation_folder in folder_list){
   
-  rotation_angle <- gsub(".*r_(\\d+)$", "\\1", rotation_folder)
+  rotation_angle <- as.numeric(gsub(".*r_(\\d+)$", "\\1", rotation_folder))
   folder_name <- gsub(".*/([^/]+)/?$", "\\1", rotation_folder)
   
   # Create the folder path
-  figure_output_folder <- file.path("figures", "rotation", folder_name)
+  figure_output_folder <- file.path("figures", "rotation3", folder_name)
   
   simulation_output_folder <- file.path(rotation_folder, "solweig_output/simulation_output")
   
+  street_extent_path <- file.path(rotation_folder, "street_raster.tif")
+  street_extent <- raster(street_extent_path) #used to be clip_extent, a shp file  
+  
   raster_list_full <- mrt_cropping(simulation_output_folder, street_extent, search_variable = "transveg", time_of_interest = "D")
+  
+  hour_summary_df <- data.frame()
   
   for (i in 1:(length(raster_list_full)-1)) {
     
@@ -105,22 +110,42 @@ for (rotation_folder in folder_list){
     
     delta_df <- raster_list_to_delta_df(raster_list_full, scenario)
     
+    hour_summary_df_temp <- raster_list_to_delta_df(raster_list_full, scenario, summary_index = 2)
+
+    hour_summary_df <- rbind(hour_summary_df, hour_summary_df_temp)
+    
     p <- delta_hour_plotting(delta_df, scenario)
-    
-    p + ggtitle(paste0("Street angle: ", rotation_angle-30 ,"° ", "- Scenario: ", scenario)) -> p
-    
-    ggsave(paste0(figure_output_folder, "/", scenario, "_deltaT.png"), 
+
+    p + ggtitle(paste0("Street angle: ", rotation_angle+15 ,"° ", "- Scenario: ", scenario)) -> p
+
+    ggsave(paste0(figure_output_folder, "/", scenario, "_deltaT.png"),
          p,
-         bg = "white", 
+         bg = "white",
          dpi = 300)
     
   }
-  
-  
   
 }
 
 
 
+
 ```
+
+debuggen: waarom verspringen de uren wanneer het scenario transveg toenoemt
+```{r}
+
+
+
+sum_df1 <- raster_list_to_delta_df(raster_list_full, "simulation_transveg_30", 2)
+sum_df2 <- raster_list_to_delta_df(raster_list_full, "simulation_transveg_35", 2)
+
+sum_df1
+sum_df2
+
+animation_of_rasters(raster_list_full$simulation_transveg_20, "r165_tv30")
+
+```
+
+
 

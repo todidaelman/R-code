@@ -35,25 +35,55 @@ shade_analyser <- function(delta_df_hour, scenario_name){
     mutate(cluster_id = factor(cluster_id))
   
   
+  ## visual check pre ordering of clusters
   data %>%
-    group_by(cluster, hour, cluster_id) %>%
-    summarise(mean = mean(value)) %>%
-    ungroup() -> data_overview
+    ggplot(aes(x = hour, y = value, fill = cluster_id, color = cluster_id)) +
+    geom_dotplot(binaxis = 'y',
+                 stackdir = 'center',
+                 stackratio = 0.2,
+                 dotsize = 0.5,
+                 position = "jitter",
+                 method = "histodot") +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    scale_x_discrete(labels = c(7:22)) +
+    facet_wrap(~hour) -> clusterplot
   
+
+  # Parameters
+  median_diff_threshold <- 1 # Change this value to adjust the threshold
   
-  data_overview %>%
-    group_by(hour) %>%
-    mutate(cluster_mm = case_when(
-      mean == min(mean) & abs(max(mean) - min(mean)) >= 1 ~ paste(hour, "shade", sep = "_"),
-      mean == max(mean) ~ paste(hour, "sun", sep = "_"))) %>% 
-    mutate(mm = case_when(
-      mean == min(mean) & abs(max(mean) - min(mean)) >= 1 ~ "shade",
-      mean == max(mean) ~ "sun")) %>%
+  data %>%
+    group_by(hour, cluster_id) %>%
+    summarise(median_value = median(value), .groups = 'drop') %>%
     ungroup() %>%
-    select(mean, cluster, cluster_mm, mm) %>%
-    full_join(data, by = "cluster") %>%
-    mutate(scenario = scenario_name) %>%
-    select(scenario, hour, cluster_mm, mm, value, mean) -> data_processed
+    group_by(hour) %>%
+    mutate(rank = rank(-median_value)) %>%
+    group_by(hour) %>%
+    mutate(mm = case_when(
+      max(median_value) - min(median_value) < median_diff_threshold ~ "edge_effect",
+      rank == 2 ~ "shade",
+      TRUE ~ "edge_effect"
+    )) %>%
+    select(-median_value, -rank) %>%
+    mutate(cluster_mm = paste(hour, mm, sep = "_")) %>%
+    right_join(data, by = c("hour", "cluster_id")) %>%
+    select(hour, value, cluster, cluster_id, mm, cluster_mm) -> data_processed
+  
+  
+  ## visual check pre ordering of clusters
+  data_processed %>%
+    ggplot(aes(x = hour, y = value, fill = mm, color = mm)) +
+    geom_dotplot(binaxis = 'y',
+                 stackdir = 'center',
+                 stackratio = 0.2,
+                 dotsize = 0.5,
+                 position = "jitter",
+                 method = "histodot") +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    scale_x_discrete(labels = c(7:22)) +
+    facet_wrap(~hour) -> cluster_ordered_plot
   
   return_list[[1]] <- data_processed
   

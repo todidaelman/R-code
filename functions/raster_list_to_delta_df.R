@@ -1,8 +1,9 @@
-raster_list_to_delta_df <- function(raster_list_full, scenario){
+raster_list_to_delta_df <- function(raster_list_full, scenario, summary_index = 1){
   
   ## inputs
   ### raster_list_full:     list with all simulated Tmrt values of the scenarios
   ### scenario:             name of the scenario you want to generate a dataframe of
+  ### summaryornot:         default is 1 (no summary), if 1 a summary of the delta per hour is given, if 3 a summary for the whole shade of the day is given. if 4 whole list is given as output
   
   ## outputs:
   ### delta_Tmrt_shade_hour: a df that contains, for a given scenario, all non-zero delta values (Tmrt_scenario - Tmrt_notree) per hour
@@ -24,7 +25,21 @@ raster_list_to_delta_df <- function(raster_list_full, scenario){
   
   shade_list_output <- suppressMessages(shade_analyser(delta_df_hour, scenario_name = scenario))
   
-  delta_df <- shade_list_output[[1]]
+  if (summary_index == 1){
+    delta_df <- shade_list_output[[summary_index]]
+    return(delta_df)
+  } 
+  if (summary_index == 2){
+    delta_Tmrt_shade_hour <- shade_list_output[[summary_index]]
+    return(delta_Tmrt_shade_hour)
+  } 
+  if (summary_index == 3){
+    delta_Tmrt_shade_day <- shade_list_output[[summary_index]]
+    return(delta_Tmrt_shade_day)
+  } 
   
-  return(delta_df)
+  if (summary_index == 4){s
+    return(shade_list_output)
+  } 
+  
 }

@@ -25,12 +25,13 @@ delta_hour_plotting <- function(delta_Tmrt, scenario) {
   baseplot_without_sun +
     geom_point(data = delta_Tmrt %>%
                  filter(scenario == scenario) %>%
-                 filter(mm == "sun") %>%
-                 sample_frac(1), #downsampling if wanted
+                 filter(mm == "edge_effect") %>%
+                 sample_frac(0.001), #downsampling if wanted
+               x = value,
+               y = hour,
                shape = "|",
                alpha = 0.7,
-               colour = "grey") +
-    scale_y_discrete(labels = paste(7:22, ":00", sep = "")) +
+               colour = "grey", ) +
     scale_x_continuous(limits = c(-30,1)) +
     guides(colour = "none",
            point_fill = "none",
@@ -38,6 +39,10 @@ delta_hour_plotting <- function(delta_Tmrt, scenario) {
     labs(fill = expression(Delta*"T"["MRT"]),
          y = '',
          x = expression(Delta*"T"["MRT"])) -> tempplot
+  
+  
+  ##TO DO:
+  # scale_y_discrete(breaks = 7:22, labels = paste(7:22, ":00", sep = "")) +
   
   return(tempplot)
   
