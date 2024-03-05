@@ -1,4 +1,4 @@
-shade_analyser <- function(delta_df_hour, scenario_name){
+shade_analyser <- function(delta_df_hour, Tmrt_df_hour, scenario_name){
     
   ## input:
   ### delta_df_hour:      df with deltas of all pixels per hour
@@ -18,7 +18,19 @@ shade_analyser <- function(delta_df_hour, scenario_name){
                         values_to = "value") %>%
     filter(!is.na(value)) %>%
     mutate(hour = factor(hour, levels = paste0("hour_", 7:22), ordered = TRUE)) %>%
-    arrange(hour) -> df_clustering #needs to be arranged by the catogerical variable in order for numbering later to work out
+    arrange(hour) -> df_deltaTmrt #needs to be arranged by the categorical variable in order for numbering later to work out
+  
+  Tmrt_df_hour %>%
+    tidyr::pivot_longer(cols = everything(),
+                        names_to = "hour",
+                        values_to = "value") %>%
+    filter(!is.na(value)) %>%
+    mutate(Tmrt = value) %>%
+    select(Tmrt) -> df_reference
+  
+  df_deltaTmrt %>%
+    mutate(Tmrt_reference = df_reference$Tmrt) -> df_clustering
+  
   
   # https://stackoverflow.com/questions/40490199/r-univariate-clustering-by-group
   
@@ -68,7 +80,7 @@ shade_analyser <- function(delta_df_hour, scenario_name){
     select(-median_value, -rank) %>%
     mutate(cluster_mm = paste(hour, mm, sep = "_")) %>%
     right_join(data, by = c("hour", "cluster_id")) %>%
-    select(hour, value, cluster, cluster_id, mm, cluster_mm) -> data_processed
+    select(hour, value, Tmrt_reference, cluster, cluster_id, mm, cluster_mm) -> data_processed
   
   
   ## visual check pre ordering of clusters
@@ -102,6 +114,7 @@ shade_analyser <- function(delta_df_hour, scenario_name){
   #   scale_x_discrete(labels = c(7:22)) +
   #   facet_wrap(~hour)
   
+  #summary table per hour (reference Tmrt is not yet included!!)
   
   data_processed %>%
     group_by(hour, cluster_mm, mm) %>%

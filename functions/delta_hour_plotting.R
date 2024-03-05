@@ -1,7 +1,13 @@
 delta_hour_plotting <- function(delta_Tmrt, scenario) {
   
   delta_Tmrt %>%
-    filter(scenario == scenario) %>%
+    mutate(hour = factor(hour, 
+                         levels = paste("hour", 7:22, sep = "_"),
+                         labels = paste(7:22, ":00", sep = ""),
+                         ordered = TRUE)) %>%
+    filter(scenario == scenario) -> delta_Tmrt_scenario 
+  
+  delta_Tmrt_scenario %>%
     filter(mm == "shade") %>%
     ggplot(aes(x = value, y = hour, fill = stat(x))) +
     geom_density_ridges_gradient(
@@ -17,21 +23,20 @@ delta_hour_plotting <- function(delta_Tmrt, scenario) {
       alpha = 0.7
     ) +
     theme_minimal() +
-    scale_fill_gradientn(colours = c("blue2", "green3", "white"),
+    scale_fill_gradientn(colours = c("blue2", "green3", "lightgrey"),
                          limits = c(-30,1),
-                         aesthetics = c("colour", "fill", "point_fill", "point_colour")) -> baseplot_without_sun
+                         aesthetics = c("colour", "fill", "point_fill", "point_colour"))  +
+    scale_y_discrete(drop = FALSE) -> baseplot_without_edge_effect
   
   
-  baseplot_without_sun +
-    geom_point(data = delta_Tmrt %>%
-                 filter(scenario == scenario) %>%
+  baseplot_without_edge_effect +
+    geom_point(data = delta_Tmrt_scenario %>%
                  filter(mm == "edge_effect") %>%
-                 sample_frac(0.001), #downsampling if wanted
-               x = value,
-               y = hour,
+                 mutate(value = value) %>%
+                 sample_frac(1), #downsampling if wanted
+               aes(x = value, y = hour, colour = value),
                shape = "|",
-               alpha = 0.7,
-               colour = "grey", ) +
+               alpha = 0.7) +
     scale_x_continuous(limits = c(-30,1)) +
     guides(colour = "none",
            point_fill = "none",
@@ -39,10 +44,6 @@ delta_hour_plotting <- function(delta_Tmrt, scenario) {
     labs(fill = expression(Delta*"T"["MRT"]),
          y = '',
          x = expression(Delta*"T"["MRT"])) -> tempplot
-  
-  
-  ##TO DO:
-  # scale_y_discrete(breaks = 7:22, labels = paste(7:22, ":00", sep = "")) +
   
   return(tempplot)
   

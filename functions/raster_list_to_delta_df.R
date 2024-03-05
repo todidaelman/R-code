@@ -23,7 +23,10 @@ raster_list_to_delta_df <- function(raster_list_full, scenario, summary_index = 
   
   delta_df_hour <- rasterlist_to_df(raster_list_scenario_delta)
   
-  shade_list_output <- suppressMessages(shade_analyser(delta_df_hour, scenario_name = scenario))
+  #reference: Tmrt on the street with no vegetation as reference (as was clipped before to the specified street_extent)
+  Tmrt_df_hour <- rasterlist_to_df(raster_list_notree)
+  
+  shade_list_output <- suppressMessages(shade_analyser(delta_df_hour, Tmrt_df_hour, scenario_name = scenario))
   
   if (summary_index == 1){
     delta_df <- shade_list_output[[summary_index]]

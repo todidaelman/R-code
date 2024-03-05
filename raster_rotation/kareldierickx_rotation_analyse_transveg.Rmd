@@ -31,6 +31,7 @@ library(purrr)
 library(factoextra)   #visualising clusters
 library(ggridges)     #ridgeline plots
 library(grid)         #combining plots
+library(hrbrthemes)   #plotting themes and fonts
 
 source("../functions/mrt_average.r")
 source("../functions/gplot_data.r")
@@ -44,9 +45,6 @@ source("../functions/raster_list_to_delta_df.R")
 
 
 ```{r}
-
-rotation_folder_path <- "C:/Users/todaelma/OneDrive - UGent/Documents/PhD/QGIS/SOLWEIG/test-Gent/generated SOLWEIG input/kareldierickx_rotation/r_120"
-
 simulation_output_folder <- file.path(rotation_folder_path, "solweig_output/simulation_output")
 
 street_extent_path <- file.path(rotation_folder_path, "street_raster.tif")
@@ -64,11 +62,18 @@ DSM_background_df <- gplot_data(DSM_background)
 
 
 ```{r}
+
+#only 1 rotation scenario
+
+rotation_folder_path <- "C:/Users/todaelma/OneDrive - UGent/Documents/PhD/QGIS/SOLWEIG/test-Gent/generated SOLWEIG input/kareldierickx_rotation/r_120"
+
 raster_list_full <- mrt_cropping(simulation_output_folder, street_extent, search_variable = "transveg", time_of_interest = "D")
 ```
 
 
 ```{r}
+## all rotation scenarios
+
 # scenario selecteren
 
 # Get the list of all folders starting with "simulation_"
@@ -90,7 +95,7 @@ for (rotation_folder in folder_list){
   folder_name <- gsub(".*/([^/]+)/?$", "\\1", rotation_folder)
   
   # Create the folder path
-  figure_output_folder <- file.path("figures", "rotation3", folder_name)
+  figure_output_folder <- file.path("figures", "rotation4", folder_name)
   
   simulation_output_folder <- file.path(rotation_folder, "solweig_output/simulation_output")
   
@@ -110,10 +115,13 @@ for (rotation_folder in folder_list){
     
     delta_df <- raster_list_to_delta_df(raster_list_full, scenario)
     
+    #SUMMARY DATAFRAME CONSTRUCTION
     hour_summary_df_temp <- raster_list_to_delta_df(raster_list_full, scenario, summary_index = 2)
 
     hour_summary_df <- rbind(hour_summary_df, hour_summary_df_temp)
     
+    
+    #PLOTTING
     p <- delta_hour_plotting(delta_df, scenario)
 
     p + ggtitle(paste0("Street angle: ", rotation_angle+15 ,"° ", "- Scenario: ", scenario)) -> p
