@@ -6,7 +6,9 @@
 
 ## input files / path to input files
 
-source("raster_rotation/input_rotation_script.R")
+source("raster_rotation/input/input_rotation_script.R")
+### EXTRA TO DO: source all functions in folder "functions"!!!
+
 
 ## create extent files
 # first input: street polygon
@@ -49,7 +51,7 @@ for (i in 1:length(rotation_angles)) {
     DEM_rotate <- crop(DTM_vl, extent_rotate)
     DSM_rotate <- cover(mask(DSM_vl_rotate, GRB_rotate), DEM_rotate)
     
-    landcover_rotate <- raster(ext = extent(extent_rotate), res = 1)
+    landcover_rotate <- raster(ext = extent(extent_rotate), res = 1) #initialising raster
     landcover_rotate <- rasterize(GRB_rotate, landcover, fun = 'first')
 
     landcover_rotate[!is.na(landcover_rotate)] <- 2

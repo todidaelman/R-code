@@ -32,6 +32,7 @@ library(factoextra)   #visualising clusters
 library(ggridges)     #ridgeline plots
 library(grid)         #combining plots
 library(hrbrthemes)   #plotting themes and fonts
+library(broom)        #model stats manipulation
 
 source("../functions/mrt_average.r")
 source("../functions/gplot_data.r")
@@ -274,19 +275,114 @@ for (N in 1:N_length){
   }
 }
 
+#making unique factors of the different scenarios 
+scenario_summary_df <- scenario_summary_df %>%
+  mutate(street_angle = factor(street_angle, ordered = TRUE),
+         transveg = factor(transveg, levels = unique(transveg), labels = seq(5,50,5), ordered = TRUE),
+         street_orientation = case_when(
+           street_angle == 15 ~ "base",
+           street_angle == 45 ~ "NE-SW",
+           street_angle == 90 ~ "EW",
+           street_angle == 135 ~ "NW-SE",
+           street_angle == 180 ~ "NS",
+           street_angle == 225 ~ "NW-SE",
+           street_angle == 270 ~ "EW",
+           street_angle == 315 ~ "NE-SW",
+           street_angle == 360 ~ "NS",
+           TRUE ~ NA_character_) %>%
+           factor(levels = c("base", "NS", "EW", "NE-SW", "NW-SE")))
 
-scenario_summary_df <- mutate(scenario_summary_df, 
-                              transveg = factor(transveg, levels = unique(transveg), labels = seq(5,50,5), ordered = TRUE))
 
-scenario_summary_df
-  
-  mutate(diff_Tmrt = mean_Tmrt-median_Tmrt,
-         diff_delta_Tmrt = mean_delta_Tmrt - median_delta_Tmrt) %>%
-  filter(transveg == 5)
+#add direction
 
-ggplot(scenario_summary_df, aes(x = ))  
 
 
 ```
 
+
+
+table analysis
+```{r}
+
+#plotting transveg(x) vs delta_Tmrt(y)
+scenario_summary_df %>%
+  mutate(transveg = as.numeric(as.character(transveg))) %>%
+  ggplot(aes(x = transveg, y = mean_delta_Tmrt, colour = street_angle, linetype)) +
+  geom_point() +
+  geom_line(aes(linetype = street_orientation)) +
+  theme_ipsum() -> p
+
+
+for (i in 1:length(unique(scenario_summary_df$street_angle))) {
+  scenario_df <- filter()
+  
+}
+
+#constructing linear model 
+scenario_summary_df %>%
+  mutate(transveg = as.numeric(as.character(transveg)),
+         street_angle = as.numeric(as.character(street_angle))) %>%
+  nest(data = -street_angle) %>%
+  mutate(model = map(data, ~lm(mean_delta_Tmrt ~ transveg, data = .)), tidied = map(model, tidy)) %>% 
+  unnest(tidied) -> scenario_fitted_models
+
+#extract slopes
+scenario_fitted_models %>%
+  filter(term == "transveg") %>%
+  mutate(slope = estimate) %>%
+  select(street_angle, slope) -> scenario_slopes
+
+#merge slope with full table
+summary_slopes <- right_join(scenario_slopes, scenario_summary_df %>% mutate(street_angle = as.numeric(as.character(street_angle))) , by = "street_angle")
+  
+#plotting of slope in function of rotation angle
+summary_slopes %>% 
+  group_by(street_angle) %>%
+  summarise(slope = first(slope)) %>%
+  ggplot(aes(x = street_angle, y = slope)) +
+  scale_x_continuous(breaks = c(15, seq(45,360,45))) +
+  geom_col() +
+  theme_ipsum()
+
+# plottins of slope in function of rotation angle (polar coordinates)
+summary_slopes %>% 
+  group_by(street_angle) %>%
+  summarise(slope = first(slope)) %>%
+ggplot(aes(x = street_angle, y = slope)) +
+  geom_bar(stat = "identity", width = 10) +
+  scale_x_continuous(breaks = seq(0, 360, by = 45), limits = c(0, 360)) +
+  coord_polar(start = 0) +
+  labs(x = "Street Angle (degrees)", y = "Slope") +
+  theme_minimal()
+
+
+
+
+
+
+```
+
+```{r}
+## plotting of raster
+
+scenario_summary_df %>%
+  ggplot() +
+  geom_raster(aes(x = street_angle, y = transveg, fill = mean_delta_Tmrt)) +
+  theme_ipsum() +
+  scale_fill_distiller(palette = "greens")
+
+
+scenario_summary_df %>%
+  mutate(transveg = as.numeric(as.character(transveg)),
+         street_angle = as.numeric(as.character(street_angle))) %>%
+  mutate(phi = (180/pi)*atan2(transveg, street_angle),
+         r = sqrt(street_angle^2 + transveg^2)) %>%
+  ggplot(aes(phi, r, fill = mean_delta_Tmrt)) +
+  geom_bin2d() +
+  coord_polar(start = 0) +
+  scale_fill_distiller(palette = "heat") +
+  theme_minimal()
+
+
+```
 

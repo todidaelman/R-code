@@ -56,8 +56,6 @@ DSM_background <- raster(DSM_background_path)
 
 DSM_background_df <- gplot_data(DSM_background)
 
-
-
 ```
 
 
@@ -139,21 +137,4 @@ for (rotation_folder in folder_list){
 
 
 ```
-
-debuggen: waarom verspringen de uren wanneer het scenario transveg toenoemt
-```{r}
-
-
-
-sum_df1 <- raster_list_to_delta_df(raster_list_full, "simulation_transveg_30", 2)
-sum_df2 <- raster_list_to_delta_df(raster_list_full, "simulation_transveg_35", 2)
-
-sum_df1
-sum_df2
-
-animation_of_rasters(raster_list_full$simulation_transveg_20, "r165_tv30")
-
-```
-
-
 
