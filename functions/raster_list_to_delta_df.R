@@ -8,6 +8,11 @@ raster_list_to_delta_df <- function(raster_list_full, scenario, summary_index = 
   ## outputs:
   ### delta_Tmrt_shade_hour: a df that contains, for a given scenario, all non-zero delta values (Tmrt_scenario - Tmrt_notree) per hour
   
+  
+  ## uses functions:
+  ### rasterlist_to_df
+  ### shade_analyser
+  
   #select index of scenario
   index <- grep(scenario, names(raster_list_full))[1]
 
@@ -41,7 +46,7 @@ raster_list_to_delta_df <- function(raster_list_full, scenario, summary_index = 
     return(delta_Tmrt_shade_day)
   } 
   
-  if (summary_index == 4){s
+  if (summary_index == 4){
     return(shade_list_output)
   } 
   

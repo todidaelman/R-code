@@ -24,7 +24,7 @@ extent_rotate <- upscale_extent_fun(upscale_extent_fun(extent_crop)) #the extent
 ## initialise lists for results
 
 rotation_angles <- c(0, 30, 30 + seq(45,315,45))
-street_angles <- rotation_angles + 15
+street_angles <- -(rotation_angles + 15) + 360
 raster_rotation_list <- list()
 
 for (i in 1:length(rotation_angles)) {
@@ -87,6 +87,7 @@ for (i in 1:length(rotation_angles)) {
   #save results
   raster_rotation_list[[i]] <- rotation_i_list
   
+  #visual check
   plot(rotation_i_list$DSM) + plot(rotation_i_list$street_raster, add = TRUE, col = "white")
   
   print(rotation_angle)
@@ -124,58 +125,6 @@ df <- data.frame(rotation_angle = names(raster_rotation_list),
 
 
 ######################################## FUNCTIONS ##################################################
-
-
-
-rotate_crop_fun <- function(raster, extent_crop, angle){
-  
-  ## function that rotates a raster (with extent_rotate) with a given angle, crops it to a wanted extent (original raster should be bigger than extent crop)
-  
-  max_dist <- (extent_crop[2] - extent_crop[1])/2
-  
-  raster_rotated <- rotate(raster, angle = angle)
-  
-  extent_i <- extent(raster_rotated)
-  
-  midpoint <- c(unlist(extent_i)[1] + (unlist(extent_i)[2] - unlist(extent_i)[1])/2, 
-                unlist(extent_i)[3] + (unlist(extent_i)[4] - unlist(extent_i)[3])/2)
-  
-  #new extend in new crs
-  extent_crop_rotated <- c(xmin = midpoint[1] - max_dist,
-                           xmax = midpoint[1] + max_dist,
-                           ymin = midpoint[2] - max_dist,
-                           ymax = midpoint[2] + max_dist)
-  
-  names(extent_crop_rotated) <- c("xmin", "xmax", "ymin", "ymax")
-  
-  raster_cropped <- crop(raster_rotated, extent_crop_rotated)
-  
-  crs(raster_cropped) <- "EPSG:31370"
-  extent(raster_cropped) <- extent_crop
-  
-  return(raster_cropped)
-  
-  # raster rotating: https://gis.stackexchange.com/questions/183175/rotating-90-using-two-point-equidistant-projection-with-proj4
-  rotate <- function(x_raster, angle=0, resolution=res(x_raster)) {
-    
-    if (dim(freq(x_raster))[1] == 2) {
-      method_check <- "ngb"
-    } else {
-      method_check <- "bilinear"
-    }
-    
-    y_raster <- x_raster
-    crs(y_raster) <- "+proj=aeqd +ellps=sphere +lat_0=90 +lon_0=0"
-    rotated_raster <- projectRaster(y_raster, 
-                                    res = resolution, 
-                                    crs = paste0("+proj=aeqd +ellps=sphere +lat_0=90 +lon_0=", -angle),
-                                    method = method_check)
-    
-    # crs(rotated_raster) <- crs(x_raster)
-    return(rotated_raster)
-  }
-}
-
 
 #squaring the extent 
 extent_square_fun <- function(exent_i) {

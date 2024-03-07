@@ -152,9 +152,14 @@ folder_names <- gsub(".*/([^/]+)/?$", "\\1", folder_list) #N
 
 delta_df_list_full <- vector("list", length = length(folder_names)) #N
 names(delta_df_list_full) <- folder_names
+
+#initialise list to summarise all hourly averaged deltas
+hour_summary_df <- data.frame()
+
+#counter for N
 N <- 1 
 
-for (rotation_folder in folder_list){
+for (rotation_folder in folder_list){ #N
   
   rotation_angle <- as.numeric(gsub(".*r_(\\d+)$", "\\1", rotation_folder))
   folder_name <- gsub(".*/([^/]+)/?$", "\\1", rotation_folder)
@@ -167,9 +172,8 @@ for (rotation_folder in folder_list){
   street_extent_path <- file.path(rotation_folder, "street_raster.tif")
   street_extent <- raster(street_extent_path) #used to be clip_extent, a shp file  
   
+  #opening rasters
   raster_list_full <- mrt_cropping(simulation_output_folder, street_extent, search_variable = "transveg", time_of_interest = "D")
-  
-  hour_summary_df <- data.frame()
   
   # initialise delta_df for every scenario
   scenario_names <- names(raster_list_full) #P
@@ -177,21 +181,30 @@ for (rotation_folder in folder_list){
   delta_df_list_scenario <- vector("list", length = length(scenario_names)-1)
   names(delta_df_list_scenario) <- scenario_names[2:length(scenario_names)]
   
-  for (i in 1:(length(raster_list_full)-1)) {
+  for (i in 1:(length(raster_list_full)-1)) { #P
     
     print(i)
     
     scenario <- names(raster_list_full)[i+1]
     print(scenario)
     
-    delta_df <- raster_list_to_delta_df(raster_list_full, scenario)
+    #analyse the shade
+    shade_list_output <- raster_list_to_delta_df(raster_list_full, scenario, summary_index = 4)
     
+    delta_df <- shade_list_output[[1]]
+    
+    #write away the delta_df
     delta_df_list_scenario[[i]] <- delta_df
     
-    #SUMMARY DATAFRAME CONSTRUCTION
-    # hour_summary_df_temp <- raster_list_to_delta_df(raster_list_full, scenario, summary_index = 2)
+    #SUMMARY DATAFRAME CONSTRUCTION -> TO DO FOR ALL ROTATION. SAVE AS .R FILE IN FOLDER OF SIMULATION
+    hour_summary_df_temp <- shade_list_output[[2]]
+    
+    hour_summary_df_temp %>%
+      mutate(rotation_angle = rotation_angle,
+             street_angle = -(rotation_angle+15) +360) %>%
+      select(scenario, rotation_angle, street_angle, everything()) -> hour_summary_df_temp
     # 
-    # hour_summary_df <- rbind(hour_summary_df, hour_summary_df_temp)
+    hour_summary_df <- rbind(hour_summary_df, hour_summary_df_temp)
     # 
     # #PLOTTING
     # p <- delta_hour_plotting(delta_df, scenario)
@@ -210,12 +223,28 @@ for (rotation_folder in folder_list){
   
 }
 
-## save the list: contains N lists (1 for every rotation), each containing P dfs with delta Tmrt for every scenario  
 
+#CHECK OUTPUT
+delta_df_list_full
+hour_summary_df
+
+## save the list: contains N lists (1 for every rotation), each containing P dfs with delta Tmrt for every scenario  
 save(delta_df_list_full, file = "rotation_output_analysis/delta_Tmrt_data/delta_df_list_full.Rdata")
 
-# load the list:
+## save the list
+save(hour_summary_df, file = "rotation_output_analysis/delta_Tmrt_data/delta_df_hour_full.Rdata")
+
+```
+
+
+
+```{r}
+
+# load the full (delte) Tmrt list:
 delta_df_list_full <- readRDS("rotation_output_analysis/delta_Tmrt_data/delta_df_list_full.Rdata")
+
+# load the hour summary list:
+hour_summary_df <- readRDS("rotation_output_analysis/delta_Tmrt_data/delta_df_hour_full.Rdata")
 
 ```
 
@@ -225,36 +254,37 @@ delta_df_list_full <- readRDS("rotation_output_analysis/delta_Tmrt_data/delta_df
 
 ## table generation
 
-N_length <- length(delta_df_list_full)
-P_length <- length(delta_df_list_full[[1]])
+N_length <- length(delta_df_list_full) #number of rotation angles -> 8 + base = 9
+P_length <- length(delta_df_list_full[[1]]) #number of (transveg) scenarios -> 10 (5,10,..., 50)
 
 # initialisation
 parameters_summary_df <- c("rot_angle", "street_angle", "transveg", "mean_Tmrt", "median_Tmrt", "mean_delta_Tmrt", "median_delta_Tmrt", "count")
 
-scenario_summary_df <- data.frame(matrix(nrow = N_length*P_length, 
+scenario_summary_df_raw <- data.frame(matrix(nrow = N_length*P_length, 
                                          ncol = length(parameters_summary_df)))
 
-names(scenario_summary_df) <- parameters_summary_df
+names(scenario_summary_df_raw) <- parameters_summary_df
 
 
 for (N in 1:N_length){
   
   #extract rotation N
   rotation_angle_N <- as.integer(unlist(strsplit(names(delta_df_list_full)[N], "_"))[2])
-  street_angle_N <- rotation_angle_N + 15
+  street_angle_N <- -(rotation_angle_N + 15) + 360
   
   rotation_list_N <- delta_df_list_full[[N]]
   
   for (P in 1:P_length){
-     
+    
+    #index of the complete scenario to write away in the summary scenario
     index <- (N-1)*P_length + P
 
-    scenario_summary_df$rot_angle[index] <- rotation_angle_N
-    scenario_summary_df$street_angle[index] <- street_angle_N
+    scenario_summary_df_raw$rot_angle[index] <- rotation_angle_N
+    scenario_summary_df_raw$street_angle[index] <- street_angle_N
     
     # scenario_P <- as.integer(tail(unlist(strsplit(names(rotation_list_N)[P], split = "_")), n = 1))
     scenario_P <- names(rotation_list_N)[P]
-    scenario_summary_df$transveg[index] <- scenario_P
+    scenario_summary_df_raw$transveg[index] <- scenario_P
 
     #actual delta_df and Tmrt of the scenario
     delta_df_P <- rotation_list_N[[P]]
@@ -269,28 +299,29 @@ for (N in 1:N_length){
                 count = n()) -> delta_df_P_summary
     
     
-    scenario_summary_df[index, c("mean_Tmrt", "median_Tmrt", "mean_delta_Tmrt", "median_delta_Tmrt", "count")] <- delta_df_P_summary
+    scenario_summary_df_raw[index, c("mean_Tmrt", "median_Tmrt", "mean_delta_Tmrt", "median_delta_Tmrt", "count")] <- delta_df_P_summary
     
     
   }
 }
 
+
 #making unique factors of the different scenarios 
-scenario_summary_df <- scenario_summary_df %>%
-  mutate(street_angle = factor(street_angle, ordered = TRUE),
-         transveg = factor(transveg, levels = unique(transveg), labels = seq(5,50,5), ordered = TRUE),
+scenario_summary_df <- scenario_summary_df_raw %>%
+  mutate(street_angle = -(rot_angle + 15) + 360,
+         transveg = sapply(strsplit(transveg, split = "_"), function(x) tail(x, n = 1)),
          street_orientation = case_when(
-           street_angle == 15 ~ "base",
+           street_angle == 0 ~ "NS",
            street_angle == 45 ~ "NE-SW",
            street_angle == 90 ~ "EW",
            street_angle == 135 ~ "NW-SE",
            street_angle == 180 ~ "NS",
-           street_angle == 225 ~ "NW-SE",
+           street_angle == 225 ~ "NE-SW",
            street_angle == 270 ~ "EW",
-           street_angle == 315 ~ "NE-SW",
-           street_angle == 360 ~ "NS",
-           TRUE ~ NA_character_) %>%
-           factor(levels = c("base", "NS", "EW", "NE-SW", "NW-SE")))
+           street_angle == 315 ~ "NW-SE",
+           street_angle == 345 ~ "base",
+           TRUE ~ NA_character_)) %>%
+  arrange(street_angle)
 
 
 #add direction
@@ -306,17 +337,13 @@ table analysis
 
 #plotting transveg(x) vs delta_Tmrt(y)
 scenario_summary_df %>%
-  mutate(transveg = as.numeric(as.character(transveg))) %>%
-  ggplot(aes(x = transveg, y = mean_delta_Tmrt, colour = street_angle, linetype)) +
+  mutate(transveg = as.numeric(as.character(transveg)),
+         street_angle = factor(street_angle, ordered = TRUE),
+         street_orientation = factor(street_orientation)) %>%
+  ggplot(aes(x = transveg, y = mean_delta_Tmrt, colour = street_angle)) +
   geom_point() +
   geom_line(aes(linetype = street_orientation)) +
-  theme_ipsum() -> p
-
-
-for (i in 1:length(unique(scenario_summary_df$street_angle))) {
-  scenario_df <- filter()
-  
-}
+  theme_ipsum()
 
 #constructing linear model 
 scenario_summary_df %>%
@@ -333,7 +360,7 @@ scenario_fitted_models %>%
   select(street_angle, slope) -> scenario_slopes
 
 #merge slope with full table
-summary_slopes <- right_join(scenario_slopes, scenario_summary_df %>% mutate(street_angle = as.numeric(as.character(street_angle))) , by = "street_angle")
+summary_slopes <- right_join(scenario_slopes, scenario_summary_df, by = "street_angle")
   
 #plotting of slope in function of rotation angle
 summary_slopes %>% 
@@ -347,14 +374,16 @@ summary_slopes %>%
 # plottins of slope in function of rotation angle (polar coordinates)
 summary_slopes %>% 
   group_by(street_angle) %>%
-  summarise(slope = first(slope)) %>%
-ggplot(aes(x = street_angle, y = slope)) +
-  geom_bar(stat = "identity", width = 10) +
-  scale_x_continuous(breaks = seq(0, 360, by = 45), limits = c(0, 360)) +
-  coord_polar(start = 0) +
+  summarise(slope = first(slope),
+            street_orientation = first(street_orientation)) %>%
+  ggplot() +
+  geom_bar(aes(x = street_angle, y = slope, fill = street_orientation),
+           stat = "identity", width = 15) +
+  coord_polar() +
+  scale_x_continuous(limits = c(0,360),
+                     breaks = seq(0,360,45)) +
   labs(x = "Street Angle (degrees)", y = "Slope") +
   theme_minimal()
-
 
 
 
@@ -371,6 +400,8 @@ scenario_summary_df %>%
   theme_ipsum() +
   scale_fill_distiller(palette = "greens")
 
+
+##https://stackoverflow.com/questions/61914534/how-to-draw-a-2d-heatmap-in-polar-coordinates-with-ggplot2
 
 scenario_summary_df %>%
   mutate(transveg = as.numeric(as.character(transveg)),

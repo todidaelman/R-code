@@ -5,12 +5,14 @@ shade_analyser <- function(delta_df_hour, Tmrt_df_hour, scenario_name){
   ### scenario name:      name of scenario you want to give, will be a column in the final df
   
   
-  ## 3 returns: 
-  ### data_processed: dataframe of all labeled raster values (sun or shade)
+  ## 3 returns (in 1 list): 
+  ### delta_df: dataframe of all labeled raster values (edge effect or shade)
   ### delta_Tmrt_shade_hour: summary dataframe of average deltaTmrt in shade for every hour
   ### delta_Tmrt_shade_day: summary dataframe of average deltaTmrt in shade globally over the day
   
   return_list <- list()
+  
+  set.seed(350)
   
   delta_df_hour %>%
     tidyr::pivot_longer(cols = everything(),
@@ -26,6 +28,8 @@ shade_analyser <- function(delta_df_hour, Tmrt_df_hour, scenario_name){
                         values_to = "value") %>%
     filter(!is.na(value)) %>%
     mutate(Tmrt = value) %>%
+    mutate(hour = factor(hour, levels = paste0("hour_", 7:22), ordered = TRUE)) %>%
+    arrange(hour) %>%
     select(Tmrt) -> df_reference
   
   df_deltaTmrt %>%
@@ -34,7 +38,7 @@ shade_analyser <- function(delta_df_hour, Tmrt_df_hour, scenario_name){
   
   # https://stackoverflow.com/questions/40490199/r-univariate-clustering-by-group
   
-  set.seed(350)
+  
   res2 <- tapply(df_clustering$value, INDEX = df_clustering$hour, function(x) kmeans(x,2))   
   res3 <- lapply(names(res2), function(x) data.frame(hour=x, Centers=res2[[x]]$centers, Size=res2[[x]]$size))  
   
@@ -80,11 +84,11 @@ shade_analyser <- function(delta_df_hour, Tmrt_df_hour, scenario_name){
     select(-median_value, -rank) %>%
     mutate(cluster_mm = paste(hour, mm, sep = "_")) %>%
     right_join(data, by = c("hour", "cluster_id")) %>%
-    select(hour, value, Tmrt_reference, cluster, cluster_id, mm, cluster_mm) -> data_processed
+    select(hour, value, Tmrt_reference, cluster, cluster_id, mm, cluster_mm) -> delta_df
   
   
   ## visual check pre ordering of clusters
-  data_processed %>%
+  delta_df %>%
     ggplot(aes(x = hour, y = value, fill = mm, color = mm)) +
     geom_dotplot(binaxis = 'y',
                  stackdir = 'center',
@@ -97,11 +101,11 @@ shade_analyser <- function(delta_df_hour, Tmrt_df_hour, scenario_name){
     scale_x_discrete(labels = c(7:22)) +
     facet_wrap(~hour) -> cluster_ordered_plot
   
-  return_list[[1]] <- data_processed
+  return_list[[1]] <- delta_df
   
   ## plotting of the different groups
   
-  # data_processed %>%
+  # delta_df %>%
   #   ggplot(aes(x = hour, y = value, fill = mm, color = mm)) +
   #   geom_dotplot(binaxis = 'y',
   #                stackdir = 'center',
@@ -116,10 +120,11 @@ shade_analyser <- function(delta_df_hour, Tmrt_df_hour, scenario_name){
   
   #summary table per hour (reference Tmrt is not yet included!!)
   
-  data_processed %>%
+  delta_df %>%
     group_by(hour, cluster_mm, mm) %>%
     summarise(mean_delta = mean(value), #you can add more parameters here
               max_delta = min(value),
+              mean_Tmrt_reference = mean(Tmrt_reference),
               pixels = n()) %>%
     ungroup() %>%
     tidyr::pivot_longer(cols = -c(hour, cluster_mm, mm),

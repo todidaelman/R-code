@@ -1,0 +1,143 @@
+---
+title: "rotation_basecase"
+author: "Todi Daelman"
+date: "2024-02-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
+# options(paged.print=FALSE) #output of tables as in console and not as tibble
+
+library(lidR)
+library(raster)
+library(rgl)          #3D plotting
+library(rasterVis)    #3D plotting of a raster
+library(plot3D)
+library(sf)
+library(terra)
+library(dplyr)
+library(lubridate)    #date handeling
+library(ggnewscale)   #introduce new color scale in plots 
+library(ggplot2)      #
+library(patchwork)    #stick different plots to each other
+library(animation)
+library(viridis)
+library(cowplot)      #adding title to combined plots with plot_grid
+library(egg)          #ggcombine function
+library(ggpubr)       #annotate_figure function
+library(purrr)
+library(factoextra)   #visualising clusters
+library(ggridges)     #ridgeline plots
+library(grid)         #combining plots
+library(hrbrthemes)   #plotting themes and fonts
+library(broom)        #model stats manipulation
+
+source("../functions/mrt_average.r")
+source("../functions/gplot_data.r")
+source("../functions/mrt_cropping.r")
+source("../functions/mrt_plotting_vegtrans.r")
+source("../functions/rasterlist_to_df.r")
+source("../functions/shade_analyser.r")
+source("../functions/delta_hour_plotting.R")
+source("../functions/raster_list_to_delta_df.R")
+```
+
+
+```{r}
+
+rotation_angle <- 0
+folder_name <- "r_0"
+  
+rotation_folder <- "C:/Users/todaelma/OneDrive - UGent/Documents/PhD/QGIS/SOLWEIG/test-Gent/generated SOLWEIG input/kareldierickx_rotation/r_0"
+
+  # Create the folder path
+figure_output_folder <- file.path("figures", "rotation4", folder_name)
+  
+simulation_output_folder <- file.path(rotation_folder, "solweig_output/simulation_output")
+  
+
+street_extent_path <- file.path(rotation_folder, "street_raster.tif")
+street_extent <- raster(street_extent_path) #used to be clip_extent, a shp file  
+  
+raster_list_full <- mrt_cropping(simulation_output_folder, street_extent, search_variable = "transveg", time_of_interest = "D")
+
+rasters_r_0_tv5 <- raster_list_full$simulation_transveg_5
+rasters_r_0_notree <- raster_list_full$simulation_no_trees
+
+
+deltas_r_0_tv5 <- list()
+
+for (i in 1:length(rasters_r_0_tv5)) {
+    deltas_r_0_tv5[[i]] <- rasters_r_0_tv5[[i]] - rasters_r_0_notree[[i]]
+  }
+
+plot(deltas_r_0_tv5[[4]])
+
+
+
+```
+
+
+
+
+```{r}
+
+delta_df_list_full <- readRDS("rotation_output_analysis/delta_Tmrt_data/delta_df_list_full.Rdata")
+
+deltas_r_0 <- delta_df_list_full$r_0$simulation_transveg_5
+scenario <- "shade"
+
+
+deltas_r_0 %>%
+    mutate(hour = factor(hour, 
+                         levels = paste("hour", 7:22, sep = "_"),
+                         labels = paste(7:22, ":00", sep = ""),
+                         ordered = TRUE)) -> delta_Tmrt_scenario 
+delta_Tmrt_scenario %>%
+  filter(mm == "shade") %>%
+  group_by(hour) %>%
+  summarise(Tmrt_hour = mean(Tmrt_reference)) -> Tmrt_means
+
+delta_Tmrt_scenario %>%
+  filter(mm == "shade") %>%
+  mutate(value = value + Tmrt_reference) %>%
+    ggplot(aes(x = hour, y = value)) +
+  geom_violin() +
+  geom_point(data = Tmrt_means, aes(x = hour, y = Tmrt_hour)) +
+  scale_x_discrete(drop = FALSE)
+
+
+
+  
+
+    
+    
+  delta_Tmrt_scenario %>%
+    filter(mm == "shade") %>%
+    ggplot(aes(x = value, y = hour, fill = stat(x))) +
+    geom_density_ridges_gradient(
+      aes(point_fill = stat(x),
+          point_colour = stat(x)),
+      rel_min_height = 0.01,
+      scale = 2,
+      jittered_points = TRUE,
+      position = position_points_jitter(width = 0.05, height = 0, yoffset = -0.1),
+      point_shape = '|',
+      point_size = 1, 
+      point_alpha = 0.3, 
+      alpha = 0.7
+    ) +
+    theme_minimal() +
+    scale_fill_gradientn(colours = c("blue2", "green3", "lightgrey"),
+                         limits = c(-30,1),
+                         aesthetics = c("colour", "fill", "point_fill", "point_colour"))  +
+    scale_y_discrete(drop = FALSE) -> baseplot_without_edge_effect
+
+
+
+```
+
+
+
