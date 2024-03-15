@@ -58,6 +58,9 @@ for (i in 1:length(rotation_angles)) {
     landcover_rotate[is.na(landcover_rotate)] <- 1
     
     #TO DO: function to improve!!
+    
+    TLS_file_names <- list.files(path = TLS_tree_folder_path, full.names = TRUE)
+    
     TLS_list <- TLS_to_raster(TLS_file_names, DSM_rotate)
     CDSM_rotate <- TLS_list[[1]]
     TDSM_rotate <- TLS_list[[2]]

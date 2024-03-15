@@ -18,11 +18,13 @@ library(plot3D)
 library(sf)
 library(terra)
 library(dplyr)
+library(tidyverse)
 library(lubridate)    #date handeling
 library(ggnewscale)   #introduce new color scale in plots 
 library(ggplot2)      #
 library(patchwork)    #stick different plots to each other
 library(animation)
+library(gganimate)    #animation of figures
 library(viridis)
 library(cowplot)      #adding title to combined plots with plot_grid
 library(egg)          #ggcombine function
@@ -33,6 +35,8 @@ library(ggridges)     #ridgeline plots
 library(grid)         #combining plots
 library(hrbrthemes)   #plotting themes and fonts
 library(broom)        #model stats manipulation
+library(ggforce)      #multiple plots together
+library(colorspace)   #colors
 
 source("../functions/mrt_average.r")
 source("../functions/gplot_data.r")
@@ -42,6 +46,7 @@ source("../functions/rasterlist_to_df.r")
 source("../functions/shade_analyser.r")
 source("../functions/delta_hour_plotting.R")
 source("../functions/raster_list_to_delta_df.R")
+source("figures/custom_theme.R")
 ```
 
 
@@ -81,11 +86,22 @@ plot(deltas_r_0_tv5[[4]])
 
 
 
+```{r}
+##load in the data (manually in the folder if this does not work?)
+
+# load the hour summary list:
+hour_summary_df <- readRDS("rotation_output_analysis/delta_Tmrt_data/delta_df_hour_full.Rdata")
+
+# load
+delta_df_list_full <- readRDF("~/PhD/QGIS/SOLWEIG/test-Gent/R-code/rotation_output_analysis/delta_Tmrt_data/delta_df_list_full.Rdata")
+
+r_0_raster_list_full <- readRDS("rotation_output_analysis/delta_Tmrt_data/r_0_raster_list_full.Rdata")
+```
+
+
+
 
 ```{r}
-
-delta_df_list_full <- readRDS("rotation_output_analysis/delta_Tmrt_data/delta_df_list_full.Rdata")
-
 deltas_r_0 <- delta_df_list_full$r_0$simulation_transveg_5
 scenario <- "shade"
 
@@ -93,51 +109,1737 @@ scenario <- "shade"
 deltas_r_0 %>%
     mutate(hour = factor(hour, 
                          levels = paste("hour", 7:22, sep = "_"),
-                         labels = paste(7:22, ":00", sep = ""),
+                         labels = paste(7:22, "", sep = ""),
                          ordered = TRUE)) -> delta_Tmrt_scenario 
 delta_Tmrt_scenario %>%
   filter(mm == "shade") %>%
   group_by(hour) %>%
-  summarise(Tmrt_hour = mean(Tmrt_reference)) -> Tmrt_means
+  summarise(Tmrt_hour = mean(Tmrt_reference),
+            delta_Tmrt_hour = mean(value),
+            Tmrt_hour_max = max(Tmrt_reference),
+            Tmrt_hour_min = min(Tmrt_reference)) -> Tmrt_means
 
+#violin + line
 delta_Tmrt_scenario %>%
   filter(mm == "shade") %>%
   mutate(value = value + Tmrt_reference) %>%
-    ggplot(aes(x = hour, y = value)) +
-  geom_violin() +
+    ggplot() +
+  geom_violin(aes(x = hour, y = value)) +
   geom_point(data = Tmrt_means, aes(x = hour, y = Tmrt_hour)) +
-  scale_x_discrete(drop = FALSE)
+  geom_smooth(data = Tmrt_means, aes(x = as.numeric(hour), y = Tmrt_hour), stat = "smooth") +
+  geom_point(data = Tmrt_means, aes(x = hour, y = delta_Tmrt_hour + Tmrt_hour)) +
+  scale_x_discrete(drop = FALSE) +
+  theme_ipsum() 
+
+#multiple violins
+delta_Tmrt_scenario %>%
+  filter(mm == "shade") %>%
+  mutate(Tmrt_shade = value + Tmrt_reference,
+         Tmrt_delta = value) %>%
+  group_by(hour) %>%
+  pivot_longer(cols = c("Tmrt_reference", "Tmrt_shade", "Tmrt_delta"),
+               values_to = "Tmrt",
+               names_to = "type") %>%
+  select(hour, Tmrt, type) -> r0_tv5_Tmrt
 
 
 
+r0_tv5_Tmrt %>%
+  filter(type != "Tmrt_shade") %>%
+  ggplot() +
+  geom_violin(aes(x = hour, y = Tmrt, fill = type)) +
+  geom_point(aes(x = hour, y = mean(Tmrt))) +
+  scale_x_discrete(drop = FALSE) +
+  theme_ipsum() +
+  scale_fill_manual(labels = c("shade", "sun"), values = c("salmon", "lightblue")) +
+  labs(x = "",
+       y = expression("T"["MRT"]," °C"),
+       fill = "")
+```
+
+
+```{r}
+##FINISHED PLOT 1
+
+delta_Tmrt_scenario %>%
+  filter(mm == "shade") %>%
+  mutate(Tmrt_shade = value + Tmrt_reference,
+         Tmrt_delta = value) %>%  
+    ggplot() +
+  geom_violin(aes(x = hour, y = Tmrt_shade,  fill = custom_blue_colors[5])) +
+  geom_violin(aes(x = hour, y = Tmrt_reference,  fill = "salmon")) +
+  geom_point(data = Tmrt_means, aes(x = hour, y = Tmrt_hour)) +
+  geom_point(data = Tmrt_means, aes(x = hour, y = delta_Tmrt_hour + Tmrt_hour)) +
+  scale_x_discrete(drop = FALSE,
+                   breaks = c(8:20)
+                   ) +
+  scale_y_continuous(limits = c(30,65)) +
+  scale_fill_manual(labels = c("shade", "sun"), values = c(custom_blue_colors[5], "salmon")) +
+  theme_ipsum() +
+  labs(x = "hour",
+       y = expression(T["MRT"]* " (°C)"),
+       fill = "") +
+  custom_theme -> hour_voilin_plot
+
+suppressWarnings(print(hour_voilin_plot))
+  
+ggsave(paste0("rotation_output_analysis/figures/r0tv5_hour_violin.png"),
+       hour_voilin_plot,
+       bg = "white",
+       dpi = 300)
+```
+
+
+```{r}
+##FINISHED PLOT 2
+
+r0_tv5_Tmrt %>%
+  mutate(hour = factor(hour, levels = 7:22, labels = 7:22)) %>%
+  filter(type == "Tmrt_delta") %>%
+  ggplot() +
+  stat_summary(aes(x = as.numeric(hour), y = -Tmrt), fun = "mean", geom = "line") +
+  stat_summary(aes(x = hour, y = -Tmrt), fun = "mean", geom = "point") +
+  scale_x_discrete(drop = FALSE) +
+  theme_ipsum() +
+  labs(x = "hour",
+       y = expression(T["MRT"]* " (°C)")) -> refshade_hour_point_plot
+
+suppressWarnings(print(refshade_hour_point_plot))
+
+ggsave(paste0("rotation_output_analysis/figures/r0tv5_ref+shade_hour_point.png"),
+       refshade_hour_point_plot,
+       bg = "white",
+       dpi = 300)
+```
+
+
+```{r}
+##FINISHED PLOT 3
+
+r0_tv5_Tmrt %>%
+  mutate(hour = factor(hour, levels = 7:22, labels = 7:22)) %>%
+  mutate(Tmrt = ifelse(Tmrt<0, -Tmrt, Tmrt)) %>%
+  filter(type == "Tmrt_delta" | type == "Tmrt_reference") %>%
+  ggplot() +
+  stat_summary(aes(x = as.numeric(hour), y = Tmrt, color = type), fun = "mean", geom = "line") +
+  stat_summary(aes(x = hour, y = Tmrt, color = type), fun = "mean", geom = "point") +
+  scale_x_discrete(drop = FALSE) +
+  scale_colour_manual(labels = c(expression(Delta*"T"["MRT"]), expression(paste(T["MRT"], " sun"))), 
+                      values = c("lightblue3", "salmon")) +
+  theme_ipsum() +
+  labs(x = "hour",
+       y =  expression(T["MRT"]* " (°C)"),
+       color = "") -> refdelta_hour_point_plot
+
+suppressWarnings(print(refdelta_hour_point_plot))
+
+ggsave(paste0("rotation_output_analysis/figures/r0tv5_ref+delta_hour_point.png"),
+       refdelta_hour_point_plot,
+       bg = "white",
+       dpi = 300)
+```
+
+
+```{r}
+##FINISHED PLOT 4
+
+r_0_list <- delta_df_list_full$r_0
+
+# Function to add list name as a column
+add_list_name_column <- function(list_of_dataframes) {
+  for (name in names(list_of_dataframes)) {
+    list_of_dataframes[[name]]$scenario <- name
+  }
+  return(list_of_dataframes)
+}
+
+# Add list name as a column to each data frame
+list_of_dataframes_with_list_name <- add_list_name_column(r_0_list)
+
+# Combine all data frames into a single data frame
+r_0_df <- do.call(rbind, list_of_dataframes_with_list_name)
+
+
+r_0_df %>%
+  mutate(hour = factor(hour, levels =  paste("hour", 7:22, sep = "_"), labels = 7:22)) %>%
+  filter(mm == "shade") %>%
+  mutate(Tmrt_shade = value + Tmrt_reference,
+         Tmrt_delta = -value) %>%
+  group_by(hour, scenario) %>%
+  pivot_longer(cols = c("Tmrt_reference", "Tmrt_shade", "Tmrt_delta"),
+               values_to = "Tmrt",
+               names_to = "type") %>%
+  select(scenario, hour, Tmrt, type) %>%
+  mutate(transveg_scenario = factor(scenario, 
+                           levels = paste0("simulation_transveg_", seq(5, 50, by = 5)),
+                           labels =  seq(5, 50, by = 5), 
+                           ordered = TRUE)) -> r_0_long
+
+#reference df: only the mean
+
+r_0_df %>%
+  mutate(hour = factor(hour, levels =  paste("hour", 7:22, sep = "_"), labels = 7:22)) %>%
+  filter(mm == "shade") %>%
+  select(hour, Tmrt_reference) -> r_0_df_reference
   
 
+custom_blue_colors <- colorRampPalette(c("darkblue", "lightblue"))(10)
+
+
+## VIOLIN VS POINT
+
+r_0_long %>%
+  filter(type == "Tmrt_shade") %>%
+  ggplot() +
+  geom_violin(data = r_0_df_reference,
+              aes(x = hour, y = Tmrt_reference)) +
+  stat_summary(data = r_0_df_reference, 
+               aes(x = hour, y = Tmrt_reference), fun = mean, geom = "point") +
+  stat_summary(aes(x = hour, y = Tmrt, color = transveg_scenario), fun = mean, geom = "point") +
+  scale_color_manual(values = custom_blue_colors) +
+  scale_fill_manual(values = c("salmon", custom_blue_colors[5]),
+              drop = FALSE) +
+  scale_x_discrete(drop = FALSE) +
+  scale_y_continuous(limits = c(30,70)) +
+  theme_ipsum() +
+  labs(x = "hour",
+       y =  expression(T["MRT"]* " (°C)"),
+       color = expression(tau* " (%)"),
+       fill = "") +
+  theme(legend.position = "bottom",
+        legend.box = "horizontal") -> refshade_hour_violinpoint_scenarios_plot
+
+suppressWarnings(print(refshade_hour_violinpoint_scenarios_plot))
+
+ggsave(paste0("rotation_output_analysis/figures/r0_ref+shade_hour_violinpoint2.png"),
+       refshade_hour_violinpoint_scenarios_plot,
+       bg = "white",
+       dpi = 300)
+```
+
+
+```{r}
+## FINISHED PLOT 5
+
+## POINT VS POINT
+
+r_0_long %>%
+  filter(type == "Tmrt_shade") %>%
+  ggplot() +
+  stat_summary(data = r_0_df_reference %>% mutate(type_violin = "sun", 
+                                                 type_violin = factor(type_violin, levels = c("sun", "shade")),
+                                                 ordered = TRUE), 
+               aes(x = hour, y = Tmrt_reference, color = type_violin), fun = mean, geom = "point") +
+  stat_summary(aes(x = hour, y = Tmrt, color = transveg_scenario), fun = mean, geom = "point") +
+  scale_color_manual(values = c("salmon", custom_blue_colors)) +
+  scale_fill_manual(values = c("salmon", custom_blue_colors[5]),
+              drop = FALSE) +
+  scale_x_discrete(drop = FALSE) +
+  scale_y_continuous(limits = c(30,70)) +
+  theme_ipsum() +
+  labs(x = "hour",
+       y =  expression(T["MRT"]* " (°C)"),
+       color = expression(tau* " (%)"),
+       fill = "") +
+  theme(legend.position = "bottom",
+        legend.box = "horizontal") -> refshade_hour_point_scenarios_plot
+
+suppressWarnings(print(refshade_hour_point_scenarios_plot))
+
+ggsave(paste0("rotation_output_analysis/figures/r0_ref+shade_hour_point.png"),
+       refshade_hour_point_scenarios_plot,
+       bg = "white",
+       dpi = 300)
+```
+
+
+```{r}
+## FINISHED PLOT 6
+
+r_0_long %>%
+  filter(type == "Tmrt_delta") %>%
+  ggplot() +
+  stat_summary(data = r_0_df_reference %>% mutate(type_point = "sun", 
+                                                 type_point = factor(type_point, levels = c("sun", "shade")),
+                                                 ordered = TRUE), 
+               aes(x = as.numeric(as.character(hour)), y = Tmrt_reference), fun = mean, geom = "point", color = "salmon") +
+  stat_summary(aes(x = as.numeric(as.character(hour)), y = Tmrt, color = transveg_scenario), fun = mean, geom = "point") +
+  scale_color_manual(values = c(custom_blue_colors)) +
+  theme_ipsum() +
+  scale_x_continuous(limits = c(8,20),
+                     breaks = c(8:20)) +
+  labs(x = "hour",
+       y =  expression(T["MRT"]* " (°C)"),
+       color = expression(tau* " (%)"),
+       fill = "") +
+  theme(legend.position = "bottom",
+        legend.box = "horizontal") + 
+  custom_theme -> r0tv5_ref_delta_hour_point
+
+suppressWarnings(print(r0tv5_ref_delta_hour_point))
+
+
+ggsave(paste0("rotation_output_analysis/figures/r0tv5_ref_delta_hour_point.png"),
+       r0tv5_ref_delta_hour_point,
+       bg = "white",
+       dpi = 300)
+
+```
+
+```{r}
+## VARIATION - not delta but shade temperature
+
+r_0_long %>%
+  filter(type == "Tmrt_shade") %>%
+  ggplot() +
+  stat_summary(data = r_0_df_reference %>% mutate(type_point = "sun", 
+                                                 type_point = factor(type_point, levels = c("sun", "shade")),
+                                                 ordered = TRUE), 
+               aes(x = as.numeric(as.character(hour)), y = Tmrt_reference), fun = mean, geom = "point", color = "salmon") +
+  stat_summary(aes(x = as.numeric(as.character(hour)), y = Tmrt, color = transveg_scenario), fun = mean, geom = "point") +
+  scale_color_manual(values = c(custom_blue_colors)) +
+  theme_ipsum() +
+  scale_x_continuous(limits = c(8,20),
+                     breaks = c(8:20)) +
+  labs(x = "hour",
+       y =  expression(T["MRT"]* " (°C)"),
+       color = expression(tau* " (%)"),
+       fill = "") +
+  theme(legend.position = "bottom",
+        legend.box = "horizontal") + 
+  custom_theme +
+  scale_y_continuous(limits = c(30,65)) -> r0tv5_ref_shade_hour_point
+
+suppressWarnings(print(r0tv5_ref_shade_hour_point))
+
+
+ggsave(paste0("rotation_output_analysis/figures/r0tv5_ref_shade_hour_point.png"),
+       r0tv5_ref_shade_hour_point,
+       bg = "white",
+       dpi = 300)
+
+```
+
+
+
+```{r}
+
+####testing#####
+
+r_0_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(type = factor(type)) %>%
+  filter(transveg_scenario == 5 & type == "Tmrt_reference") %>%
+  ggplot(aes(x = transveg_scenario, y = Tmrt, fill = type)) +
+  geom_boxplot() +
+  scale_fill_discrete(drop = FALSE) +
+  theme_ipsum() +
+  custom_theme
+
+
+
+r_0_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(type = factor(type)) %>%
+  mutate(scenario = factor(scenario, levels = unique(r_0_long$scenario), labels = seq(5,50,5)), ordered = TRUE) %>%
+  filter(type == "Tmrt_delta") %>%
+  ggplot(aes(x = scenario, y = Tmrt, fill = type)) +
+  geom_boxplot(position = "identity") +
+  scale_fill_discrete(drop = FALSE) +
+  custom_theme
+
+
+r_0_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(type = factor(type)) %>%
+  mutate(scenario = factor(scenario, levels = unique(r_0_long$scenario), labels = seq(5,50,5)), ordered = TRUE) %>%
+  filter(type == "Tmrt_delta") %>%
+  ggplot(aes(x = scenario, y = Tmrt, fill = type)) +
+  geom_boxplot(position = "identity") +
+  scale_fill_discrete(drop = FALSE) +
+  custom_theme
+
+### testing use of ggforce::facet_row
+
+r_0_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario))) %>%
+  mutate(transveg_scenario = factor(transveg_scenario, levels = c("basecase", seq(5,50,5), ordered = TRUE))) %>%
+  filter(!(transveg_scenario %in% seq(10,50,5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  ggplot(aes(x = transveg_scenario, y = Tmrt, fill = type)) +
+  geom_boxplot(position = "identity",
+               outlier.color = "grey1",
+               outlier.alpha = 0.1) +
+  scale_fill_discrete(drop = FALSE) +
+  custom_theme +
+  ggforce::facet_row(vars(type), scales = 'free', space = 'free') +
+  labs(x = expression(tau* " (%)"),
+       y =  expression(T["MRT"]* " (°C)"),
+       fill = "") +
+  theme(legend.position = "none") -> tempplotname
+
+suppressWarnings(print(tempplotname))
+
+## FINISHED PLOT 7: DELTA TMRT BOXPLOTS (TOTAL ACROSS ALL HOURS)
+
+###seperated ?
+
+#reference: y-lab: Tmrt (°C)
+
+ylimits <- c(min(r_0_long$Tmrt[r_0_long$type == "Tmrt_reference"]) - 5,
+               max(r_0_long$Tmrt[r_0_long$type == "Tmrt_reference"]) + 5) 
+
+r_0_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario))) %>%
+  mutate(transveg_scenario = factor(transveg_scenario, levels = c("basecase", seq(5,50,5), ordered = TRUE))) %>%
+  filter(!(transveg_scenario %in% seq(10,50,5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  filter(type == "sun") %>%
+  ggplot(aes(x = transveg_scenario, y = Tmrt, fill = type)) +
+  geom_boxplot(position = "identity",
+               outlier.color = "grey1",
+               outlier.alpha = 0.1) +
+  scale_fill_discrete(drop = FALSE) +
+  scale_y_continuous(limits = ylimits) +
+  custom_theme +
+  labs(x = "",
+       y =  expression(T["MRT"]* " (°C)"),
+       fill = "") +
+  theme(legend.position = "none") -> r_0_reference_boxplot
+
+
+#transveg scenario: y-lab: Delta Tmrt (°C)
+r_0_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario))) %>%
+  mutate(transveg_scenario = factor(transveg_scenario, levels = c("basecase", seq(5,50,5), ordered = TRUE))) %>%
+  filter(!(transveg_scenario %in% seq(10,50,5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  filter(type == "shade") %>%
+  ggplot(aes(x = transveg_scenario, y = Tmrt)) +
+  geom_boxplot(position = "identity",
+               outlier.color = "grey1",
+               outlier.alpha = 0.1,
+               aes(fill = transveg_scenario),
+               color = "grey1") +
+  scale_fill_manual(values = custom_blue_colors) +
+  custom_theme +
+  scale_y_continuous(limits = c(0,30)) +
+  labs(x = expression(tau* " (%)"),
+       y =  expression(Delta*"T"["MRT"]* " (°C)"),
+       fill = "") +
+  theme(legend.position = "none") -> r_0_transvegs_boxplot
+
+#together:
+ggarrange(r_0_reference_boxplot, NULL, r_0_transvegs_boxplot,
+          nrow = 1,
+          widths = c(3.1,-1, 10),
+          labels = c("sun", "shade"),
+          label.x = 0.3) -> r_0_tv_ref_boxplot
+
+suppressWarnings(print(r_0_tv_ref_boxplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r0_ref+shade_total_box2.png"),
+       r_0_tv_ref_boxplot,
+       bg = "white",
+       dpi = 300)
+
+```
+```{r}
+
+## FINISHED PLOT 7: DELTA TMRT BOXPLOTS (TOTAL ACROSS ALL HOURS)
+
+###seperated ?
+
+#reference: y-lab: Tmrt (°C)
+
+ylimits <- c(min(r_0_long$Tmrt[r_0_long$type == "Tmrt_reference"]) - 5,
+               max(r_0_long$Tmrt[r_0_long$type == "Tmrt_reference"]) + 5) 
+
+r_0_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario))) %>%
+  mutate(transveg_scenario = factor(transveg_scenario, levels = c("basecase", seq(5,50,5), ordered = TRUE))) %>%
+  filter(!(transveg_scenario %in% seq(10,50,5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  filter(type == "sun") %>%
+  ggplot(aes(x = transveg_scenario, y = Tmrt, fill = type)) +
+  geom_boxplot(position = "identity",
+               outlier.color = "grey1",
+               outlier.alpha = 0.1) +
+  scale_fill_discrete(drop = FALSE) +
+  scale_y_continuous(limits = ylimits) +
+  custom_theme +
+  labs(x = "",
+       y =  expression(T["MRT"]* " (°C)"),
+       fill = "") +
+  theme(legend.position = "none") -> r_0_reference_boxplot
+
+
+#transveg scenario: y-lab: Delta Tmrt (°C)
+
+#variation 1: fixed point color
+r_0_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario))) %>%
+  mutate(transveg_scenario = factor(transveg_scenario, levels = c("basecase", seq(5,50,5), ordered = TRUE))) %>%
+  filter(!(transveg_scenario %in% seq(10,50,5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  filter(type == "shade") %>%
+  ggplot(aes(x = transveg_scenario, y = Tmrt)) +
+  stat_summary(fun = mean) +
+  custom_theme +
+  scale_y_continuous(limits = c(0,30)) +
+  labs(x = expression(tau* " (%)"),
+       y =  expression(Delta*"T"["MRT"]* " (°C)"),
+       fill = "") +
+  theme(legend.position = "none") -> r_0_transvegs_pointplot1
+
+#together:
+ggarrange(r_0_reference_boxplot, NULL, r_0_transvegs_pointplot1,
+          nrow = 1,
+          widths = c(3.1,-1, 10),
+          labels = c("sun", "shade"),
+          label.x = 0.3) -> r_0_tv_ref_boxpoint1
+
+suppressWarnings(print(r_0_tv_ref_boxpoint1))
+
+ggsave(paste0("rotation_output_analysis/figures/r0_ref+shade_total_box_point1.png"),
+       r_0_tv_ref_boxpoint1,
+       bg = "white",
+       dpi = 300)
+
+#variation 2: variable point color
+r_0_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario))) %>%
+  mutate(transveg_scenario = factor(transveg_scenario, levels = c("basecase", seq(5,50,5), ordered = TRUE))) %>%
+  filter(!(transveg_scenario %in% seq(10,50,5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  filter(type == "shade") %>%
+  ggplot(aes(x = transveg_scenario, y = Tmrt)) +
+  stat_summary(fun = mean, aes(color = transveg_scenario)) +
+  scale_color_manual(values = custom_blue_colors) +
+  custom_theme +
+  scale_y_continuous(limits = c(0,30)) +
+  labs(x = expression(tau* " (%)"),
+       y =  expression(Delta*"T"["MRT"]* " (°C)"),
+       fill = "") +
+  theme(legend.position = "none") -> r_0_transvegs_pointplot2
+
+#together:
+ggarrange(r_0_reference_boxplot, NULL, r_0_transvegs_pointplot2,
+          nrow = 1,
+          widths = c(3.1,-1, 10),
+          labels = c("sun", "shade"),
+          label.x = 0.3) -> r_0_tv_ref_boxpoint2
+
+suppressWarnings(print(r_0_tv_ref_boxpoint2))
+
+ggsave(paste0("rotation_output_analysis/figures/r0_ref+shade_total_box_point2.png"),
+       r_0_tv_ref_boxpoint2,
+       bg = "white",
+       dpi = 300)
+
+```
+
+
+```{r}
+
+## FINISHED PLOT 8: number of shade pixels
+
+hour_summary_df %>%
+  group_by(scenario, street_angle, name) %>%
+  pivot_longer(cols = starts_with("hour"),
+               names_to = "hour",
+               values_to = "parameter") %>%
+  mutate(hour = factor(hour, 
+                       levels = paste("hour", 7:22, sep = "_"),
+                       labels = paste(7:22, "", sep = ""),
+                       ordered = TRUE)) %>%
+  mutate(transveg_scenario = factor(scenario, 
+                           levels = paste0("simulation_transveg_", seq(5, 50, by = 5)),
+                           labels =  seq(5, 50, by = 5), 
+                           ordered = TRUE)) -> hour_summary_df_long
+
+#total shade pixels
+r_0_shade_pixels <- sum(
+  filter(hour_summary_df_long, rotation_angle =="0" & transveg_scenario == "5" & name == "pixels")$parameter, 
+  na.rm = TRUE)
+
+print(r_0_shade_pixels)
+
+hour_summary_df_long %>%
+  filter(rotation_angle == "0") %>%
+  filter(name == "pixels") %>%
+  group_by(rotation_angle, transveg_scenario) %>%
+  mutate(pixel_count = (sum(parameter, na.rm = TRUE))) %>%
+  ungroup() %>%
+  group_by(rotation_angle) %>%
+  mutate(pixel_count_per_rotation = mean(pixel_count)) %>%
+  ggplot() +
+  geom_col(aes(x = hour, y = parameter, fill = transveg_scenario), position = "dodge") +
+  scale_fill_manual(values = custom_blue_colors) +
+  custom_theme +
+  labs(y = "#shade pixels (1 pixel = 1 m²)",
+       fill = expression(tau* " (%)")) +
+  ggtitle(paste0("n = ", r_0_shade_pixels)) +
+  scale_y_continuous(expand = c(0.01,0)) -> r_0_shadepixels_hour_barplot
+  
+suppressWarnings(print(r_0_shadepixels_hour_barplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r0_shadepixels_hour_barplot.png"),
+       r_0_shadepixels_hour_barplot,
+       bg = "white",
+       dpi = 300)
+
+```
+
+```{r}
+## BASISPLOT 1:
+
+##plotting of the simulated extent
+
+names(raster_list_full)
+
+mrt_plotting_vegtrans()
+##animation of the hour
+
+
+##plotting of the different rotations
+
+
+
+## all rotation scenarios
+
+# scenario selecteren
+
+# Get the list of all folders starting with "simulation_"
+
+rotation_folder_path <- "C:/Users/todaelma/OneDrive - UGent/Documents/PhD/QGIS/SOLWEIG/test-Gent/generated SOLWEIG input/kareldierickx_rotation"
+
+folder_list <- list.dirs(path = rotation_folder_path, full.names = TRUE, recursive = FALSE)
+
+# Extract numerical value from folder names
+numeric_values <- as.numeric(gsub(".*r_(\\d+)$", "\\1", folder_list))
+
+# Order the folder list based on numeric values
+folder_list <- folder_list[order(numeric_values)]
+
+#select the folder list we want -> R_0
+folder_list <- folder_list[order(numeric_values)][1]
+
+for (rotation_folder in folder_list){
+  
+  rotation_angle <- as.numeric(gsub(".*r_(\\d+)$", "\\1", rotation_folder))
+  folder_name <- gsub(".*/([^/]+)/?$", "\\1", rotation_folder)
+  
+  # Create the folder path
+  figure_output_folder <- file.path("figures", "rotation4", folder_name)
+  
+  simulation_output_folder <- file.path(rotation_folder, "solweig_output/simulation_output")
+  
+  street_extent_path <- file.path(rotation_folder, "street_raster.tif")
+  street_extent <- raster(street_extent_path) #used to be clip_extent, a shp file  
+  
+  raster_list_full <- mrt_cropping(simulation_output_folder, street_extent, search_variable = "transveg", time_of_interest = "D")
+  
+  hour_summary_df <- data.frame()
+  
+  # for (i in 1:(length(raster_list_full)-1)) {
+  #   
+  #   print(i)
+  #   
+  #   scenario <- names(raster_list_full)[i+1]
+  #   print(scenario)
+  #   
+  #   delta_df <- raster_list_to_delta_df(raster_list_full, scenario)
+  #   
+  #   #SUMMARY DATAFRAME CONSTRUCTION
+  #   hour_summary_df_temp <- raster_list_to_delta_df(raster_list_full, scenario, summary_index = 2)
+  # 
+  #   hour_summary_df <- rbind(hour_summary_df, hour_summary_df_temp)
+  #   
+  #   
+  #   #PLOTTING
+  #   p <- delta_hour_plotting(delta_df, scenario)
+  # 
+  #   p + ggtitle(paste0("Street angle: ", rotation_angle+15 ,"° ", "- Scenario: ", scenario)) -> p
+  # 
+  #   ggsave(paste0(figure_output_folder, "/", scenario, "_deltaT.png"),
+  #        p,
+  #        bg = "white",
+  #        dpi = 300)
+  # 
+  # }
+  
+}
+
+r_0_raster_list_full <- raster_list_full
+
+#writing away the result
+saveRDS(r_0_raster_list_full, "rotation_output_analysis/delta_Tmrt_data/r_0_raster_list_full.Rdata")
+```
+
+
+```{r}
+r_0_raster_list_full <- readRDS("rotation_output_analysis/delta_Tmrt_data/r_0_raster_list_full.Rdata")
+
+rasters_r_0_tv5 <- raster_list_full$simulation_transveg_5
+rasters_r_0_notree <- raster_list_full$simulation_no_trees
+```
+
+
+```{r}
+deltas_r_0_tv5 <- list()
+
+for (i in 1:length(rasters_r_0_tv5)) {
+    deltas_r_0_tv5[[i]] <- rasters_r_0_tv5[[i]] - rasters_r_0_notree[[i]]
+  }
+
+
+background_raster <- raster(r"(C:\Users\todaelma\OneDrive - UGent\Documents\PhD\QGIS\SOLWEIG\test-Gent\generated SOLWEIG input\kareldierickx_rotation\r_0\DSM.tif)")
+
+raster_list <- rasters_r_0_tv5
+
+ggplot_list <- list()
     
+for (i in 1:length(raster_list)) {
+  raster_i_df <- gplot_data(raster_list[[i]])
+  
+  print(paste0(i, "/", length(raster_list)))
+  
+  ggplot_list[[i]] <-
+    plotfun(background_df = DSM_background_df, raster_i_df) +
+    ggtitle(paste0(i + 6, ":00"))
+  
+}
+
+ggplot_list[[7]]
+
+grey_palette <- c("#F9F9F9", "#E1E1E1", "#BEBEBE", "#969696", "#6D6D6D", "#434343", "#1B1B1B")
+custom_heat_palette <- c("darkgreen", "green", "yellow", "orange", "red", "darkred")
+
+
+
+plotfun <- function(background_df, raster_i_df) {
     
-  delta_Tmrt_scenario %>%
-    filter(mm == "shade") %>%
-    ggplot(aes(x = value, y = hour, fill = stat(x))) +
-    geom_density_ridges_gradient(
-      aes(point_fill = stat(x),
-          point_colour = stat(x)),
-      rel_min_height = 0.01,
-      scale = 2,
-      jittered_points = TRUE,
-      position = position_points_jitter(width = 0.05, height = 0, yoffset = -0.1),
-      point_shape = '|',
-      point_size = 1, 
-      point_alpha = 0.3, 
-      alpha = 0.7
-    ) +
-    theme_minimal() +
-    scale_fill_gradientn(colours = c("blue2", "green3", "lightgrey"),
-                         limits = c(-30,1),
-                         aesthetics = c("colour", "fill", "point_fill", "point_colour"))  +
-    scale_y_discrete(drop = FALSE) -> baseplot_without_edge_effect
+    plot_temp <- ggplot(mapping = aes(x, y)) +
+      geom_tile(data = dplyr::filter(background_df, !is.na(value)), aes(fill = value, color = value)) +
+      scale_fill_gradientn(colours = grey_palette,
+                          guide = "none") +
+      scale_color_gradientn(colours = grey_palette,
+                          guide = "none")
+      theme(legend.position = "none") +
+      new_scale_fill() +
+      geom_tile(data = dplyr::filter(raster_i_df, !is.na(value)), aes(fill = value, color = value)) +
+      scale_fill_gradientn(colors = custom_heat_palette,
+                           limits = c(15,70)) + #      scale_fill_gradientn(colors = matlab.like2(100)) +
+      scale_color_gradientn(colors = custom_heat_palette,
+                           limits = c(15,70),
+                           guide = "none") +
+      labs(fill = "Tmrt (°C)") +
+      coord_equal() +
+      theme_void() +
+      theme(plot.title = element_text(hjust = 0.5))
+    
+    plot_temp
+    
+    return(plot_temp)
+  }
+
+
+
+animation_of_ggplot_figures(ggplot_list, "animations/r_0_tv_5", "animation")
+
+animation_of_ggplot_figures(ggplot_list, "r_0_tv_5_gif3")
+
+## TO DO:
+
+#knippen naar meer ingezoomde straat extent !
+#animatie maken
+#bomen erop plotten
+
+```
+
+```{r}
+###plotting of rasterization of trees -> python used
+
+TLS_tree_folder_path <- "C:/Users/todaelma/OneDrive - UGent/Documents/PhD/TLS trees/summer2021/kareldierickx_processed/"
+TLS_file_names <- list.files(path = TLS_tree_folder_path, full.names = TRUE)
+
+
+CDSM_list <- list()
+TDSM_list <- list()
+
+file <- TLS_file_names[1]
+
+TLS_rasterized_trees_df <- data.frame(x = NA, y = NA, zmin = NA, zmax = NA, treename = NA, treeid = NA)
+
+
+i <- 1
+for (file in TLS_file_names) {
+  las <- readLAS(file)
+  CDSM_i <- grid_metrics(las, quantile(Z, probs = 0.99), res = 1)
+  # CDSM_i <- grid_metrics(las, ~max(Z), res = 1)
+  CDSM_i_extent <- extend(CDSM_i, extent(DEM), NA)
+  CDSM_list[[file]] <- resample(CDSM_i_extent, DEM, method = "ngb")
+  
+  CDSM_i_df <- gplot_data(CDSM_i)
+  
+  
+  TDSM_i <- grid_metrics(las, ~ quantile(Z, probs = 0.01), res = 1)
+  # TDSM_i2 <- grid_metrics(las, ~min(Z), res = 1)
+  TDSM_i_extent <- extend(TDSM_i, extent(DEM), NA)
+  TDSM_list[[file]] <- resample(TDSM_i_extent, DEM, method = "ngb")
+  
+  TDSM_i_df <- gplot_data(TDSM_i)
+  
+  
+  x <- unique(CDSM_i_df$x)
+  y <- unique(CDSM_i_df$y)
+  zmax <- CDSM_i_df$value
+  zmin <- TDSM_i_df$value
+  
+  TLS_rasterized_trees_df <- rbind(TLS_rasterized_trees_df, data.frame(x = x, y = y, zmin = zmin, zmax = zmax, treename = tail(unlist(strsplit(file, "/")), n = 1), treeid = i))
+  
+  i <- i + 1
+  
+  print(file)
+}
+  
+CDSM <- merge(stack(CDSM_list))
+TDSM <- merge(stack(TDSM_list))
+
+TLS_rasterized_trees_df <- slice(TLS_rasterized_trees_df, -1)
+
+write.csv(TLS_rasterized_trees_df, file = r"(C:\Users\todaelma\OneDrive - UGent\Desktop\TLS_rasterized_trees.csv)", row.names = FALSE)
+
+
+
+tree1_df <- data.frame(x = x, y = y, zmax = zmax, zmin = zmin)
+
+write.csv(tree1_df, file = r"(C:\Users\todaelma\OneDrive - UGent\Desktop\tree0.csv)", row.names = FALSE)
+
+
+z <- matrix(zmax, 
+            nrow = length(x),
+            ncol = length(y),
+            byrow = TRUE)
+
+hist3D(x,y,z, 
+       expand = 1,
+       zlim = c(0,30),
+       axes=TRUE,
+       ticktype="detailed",
+       lighting=TRUE, light="diffuse", shade=0.1,
+       col = "green",
+       border="black",
+       zmin = 10)
+
+
+library(rasterVis)
+plot3D(CDSM_i) 
+
+
+```
+
+Different rotation scenario analysis
+
+
+```{r}
+## creating dataframe with all shade values
+
+r_N_full_df <- data.frame()
+
+for (N in 1:length(names(delta_df_list_full))) {
+  
+  r_N_list <- delta_df_list_full[[N]]
+  
+    # Function to add list name as a column
+  add_list_name_column <- function(list_of_dataframes) {
+    for (name in names(list_of_dataframes)) {
+      list_of_dataframes[[name]]$scenario <- name
+    }
+    return(list_of_dataframes)
+  }
+  
+  list_of_dataframes_with_list_name <- add_list_name_column(r_N_list)
+  
+  # Combine all data frames into a single data frame
+  r_N_df <- do.call(rbind, list_of_dataframes_with_list_name)
+  
+  r_N_df$rotation_angle <- as.integer(tail(unlist(strsplit(names(delta_df_list_full)[N], "_")), n = 1))
+  
+  r_N_full_df <- rbind(r_N_full_df, r_N_df)
+  
+}
+
+
+r_N_full_df %>%
+  mutate(hour = factor(hour, levels =  paste("hour", 7:22, sep = "_"), labels = 7:22)) %>%
+  filter(mm == "shade") %>%
+  mutate(Tmrt_shade = value + Tmrt_reference,
+         Tmrt_delta = -value) %>%
+  group_by(hour, scenario, rotation_angle) %>%
+  pivot_longer(cols = c("Tmrt_reference", "Tmrt_shade", "Tmrt_delta"),
+               values_to = "Tmrt",
+               names_to = "type") %>%
+  ungroup() %>%
+  select(rotation_angle, scenario, hour, Tmrt, type) %>%
+  mutate(transveg_scenario = factor(scenario, 
+                           levels = paste0("simulation_transveg_", seq(5, 50, by = 5)),
+                           labels =  seq(5, 50, by = 5), 
+                           ordered = TRUE),
+         street_angle = -(rotation_angle + 15) + 360,
+         street_orientation = case_when(
+           street_angle == 0 ~ "NS",
+           street_angle == 45 ~ "NE-SW",
+           street_angle == 90 ~ "EW",
+           street_angle == 135 ~ "NW-SE",
+           street_angle == 180 ~ "NS",
+           street_angle == 225 ~ "NE-SW",
+           street_angle == 270 ~ "EW",
+           street_angle == 315 ~ "NW-SE",
+           street_angle == 345 ~ "base",
+           TRUE ~ NA_character_)) -> r_N_long
+
+
 
 
 
 ```
 
+
+
+```{r}
+
+## FINISHED PLOT 1: FOR ALL ROTATION ANGLES BOXPLOTS OF THE DIFFERENCE REFERENCE TMRT
+
+ylimits <- c(min(r_N_long$Tmrt[r_N_long$type == "Tmrt_reference"]) - 5,
+               max(r_N_long$Tmrt[r_N_long$type == "Tmrt_reference"]) + 5) 
+
+r_N_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario))) %>%
+  mutate(transveg_scenario = factor(transveg_scenario, levels = c("basecase", seq(5,50,5), ordered = TRUE))) %>%
+  filter(!(transveg_scenario %in% seq(10,50,5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  filter(type == "sun") %>%
+  mutate(street_orientation = factor(street_orientation, levels = c("base", "NS", "EW", "NE-SW", "NW-SE"))) %>%
+  ggplot(aes(x = factor(street_angle), y = Tmrt, fill = street_orientation)) +
+  geom_boxplot(outlier.color = "grey1",
+               outlier.alpha = 0.1) +
+  scale_y_continuous(limits = ylimits) +
+  scale_fill_manual(values = colours_ref_street_orientations) +
+  custom_theme +
+  labs(y =  expression(T["MRT"]* " (°C)"),
+       x = "street angle (°)",
+       fill = "street orientation") -> r_N_Tmrtref_boxplot
+
+
+suppressWarnings(print(r_N_Tmrtref_boxplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_Tmrtref_boxplot.png"),
+       r_N_Tmrtref_boxplot,
+       bg = "white",
+       dpi = 300)
+
+r_N_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario))) %>%
+  mutate(transveg_scenario = factor(transveg_scenario, levels = c("basecase", seq(5,50,5), ordered = TRUE))) %>%
+  filter(!(transveg_scenario %in% seq(10,50,5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  filter(type == "sun") %>%
+  mutate(street_orientation = factor(street_orientation, levels = c("base", "NS", "EW", "NE-SW", "NW-SE"))) %>%
+  ggplot(aes(x = factor(street_angle), y = Tmrt, fill = factor(street_angle))) +
+  geom_boxplot(outlier.color = "grey1",
+               outlier.alpha = 0.1) +
+  scale_y_continuous(limits = ylimits) +
+  scale_fill_manual(values = colours_ref_street_angles) +
+  custom_theme +
+  labs(y =  expression(T["MRT"]* " (°C)"),
+       x = "street angle (°)",
+       fill = "street orientation") +
+  facet_wrap(vars(street_orientation),
+             scales = "free",
+             nrow = 1) +
+  theme(legend.position = "none") -> r_N_Tmrtref_facetorientation_boxplot
+
+
+suppressWarnings(print(r_N_Tmrtref_facetorientation_boxplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_Tmrtref_facetorientation_boxplot2.png"),
+       r_N_Tmrtref_facetorientation_boxplot,
+       width = 10,
+       height = 5,
+       bg = "white",
+       dpi = 300)
+
+```
+
+```{r}
+r_N_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario))) %>%
+  mutate(transveg_scenario = factor(transveg_scenario, levels = c("basecase", seq(5,50,5), ordered = TRUE))) %>%
+  filter(!(transveg_scenario %in% seq(10,45,5) & type == "Tmrt_delta")) %>% #filtering out all non 5 and 50% transmissivity scenarios
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "delta_shade"))) %>%
+  filter(type == "delta_shade") %>%
+  mutate(street_orientation = factor(street_orientation, levels = c("base", "NS", "EW", "NE-SW", "NW-SE"))) %>%
+  ggplot(aes(x = factor(street_angle), y = Tmrt, fill = factor(transveg_scenario))) +
+  geom_boxplot(outlier.color = "grey1",
+               outlier.alpha = 0.1) +
+  scale_fill_manual(values = c("darkblue", "lightblue")) +
+  custom_theme +
+  labs(y =  expression(Delta*"T"["MRT"]* " (°C)"),
+       x = "street angle (°)",
+       fill = expression(tau* " (%)")) +
+  facet_wrap(vars(street_orientation),
+             scales = "free",
+             nrow = 1) +
+  theme(legend.position = "bottom") -> r_N_Tmrtdelta_facetorientation_boxplot
+
+
+suppressWarnings(print(r_N_Tmrtdelta_facetorientation_boxplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_Tmrtdelta_facetorientation_boxplot.png"),
+       r_N_Tmrtdelta_facetorientation_boxplot,
+       width = 10,
+       height = 5,
+       bg = "white",
+       dpi = 300)
+```
+
+
+
+
+
+```{r}
+## FINISHED PLOT 1: FOR ALL ROTATION ANGLES BOXPLOTS OF THE DIFFERENCE REFERENCE TMRT
+
+symbols <- c(NS = "NS (|)",
+             `NE-SW` = "NE-SW (/)",
+             EW = "EW (―)",
+             `NW-SE` = "NW-SE (\\)")
+
+r_N_long %>%
+  filter(transveg_scenario == 5 & type == "Tmrt_reference") %>%
+  ggplot(aes(x = factor(street_angle), y = ..count.., fill = street_orientation)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label = ..count..), vjust = 1.5, color = "white") +
+  custom_theme +
+  scale_fill_manual(values = colours_ref_street_orientations,
+                    name = "street orientation",
+                    labels = symbols) +
+  labs(y = "#shade pixels (1 pixel = 1 m²)",
+       x = "street angle (°)") +
+  scale_y_continuous(expand = c(0.015,0)) -> r_N_shadepixels_barplot
+
+suppressWarnings(print(r_N_shadepixels_barplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_shadepixels_barplot.png"),
+       r_N_shadepixels_barplot,
+       bg = "white",
+       dpi = 300)
+
+
+
+```
+```{r}
+## variation: facet by orientation
+
+symbols <- c(NS = "NS (|)",
+             `NE-SW` = "NE-SW (/)",
+             EW = "EW (―)",
+             `NW-SE` = "NW-SE (\\)")
+
+r_N_long %>%
+  filter(transveg_scenario == 5 & type == "Tmrt_reference") %>%
+  mutate(street_orientation = factor(street_orientation, levels = c("base", "NS", "EW", "NE-SW", "NW-SE"))) %>%
+  ggplot(aes(x = factor(street_angle), y = ..count.., fill = factor(street_angle))) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label = ..count..), vjust = 1.5, color = "white") +
+  custom_theme +
+  scale_fill_manual(values = colours_ref_street_angles,
+                    name = "street orientation") +
+  labs(y = "#shade pixels (1 pixel = 1 m²)",
+       x = "street angle (°)") +
+  facet_wrap(vars(street_orientation),
+             scales = "free",
+             nrow = 1) +
+  theme(legend.position = "none") +
+  scale_y_continuous(limits = c(0,3250), 
+                     expand = c(0.015,0)) -> r_N_shadepixels_facetorientation_barplot
+
+suppressWarnings(print(r_N_shadepixels_facetorientation_barplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_shadepixels_facetorientation_barplot.png"),
+       r_N_shadepixels_facetorientation_barplot,
+       width = 10,
+       height = 5,
+       bg = "white",
+       dpi = 300)
+
+
+```
+
+
+
+```{r}
+##FINISHED PLOT 2: #N shade pixels per hour per scenario
+
+
+r_N_long %>%
+  filter(transveg_scenario == 5 & type == "Tmrt_reference") %>%
+  mutate(street_orientation = factor(street_orientation, levels = c("base", "NS", "EW", "NE-SW", "NW-SE"))) %>%
+  ggplot(aes(x = hour, y = ..count.., fill = factor(street_angle))) +
+  geom_bar(position = "dodge") +
+  custom_theme +
+  scale_fill_manual(values = colours_ref_street_angles, 
+                    name = "street angle") +
+  labs(y = "#shade pixels (1 pixel = 1 m²)",
+       x = "")  +
+  scale_x_discrete(breaks = c(seq(8,20,2)),
+                   drop = FALSE) +
+  scale_y_continuous(limits = c(0,600)) +
+  facet_wrap(nrow = 3, vars(factor(street_orientation)), scales = "free") +
+  theme(legend.position = "none") ->  r_N_hour_shadepixels_barplot
+
+suppressWarnings(print(r_N_hour_shadepixels_barplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_hour_shadepixels_barplot.png"),
+       r_N_hour_shadepixels_barplot,
+       bg = "white",
+       dpi = 300)
+```
+
+
+```{r}
+## VARIATION
+
+r_N_hour_shadepixels_barplot +
+  facet_wrap(nrow = 1, vars(factor(street_orientation)), scales = "free") -> r_N_hour_shadepixels_barplot_1row
+
+suppressWarnings(print(r_N_hour_shadepixels_barplot_1row))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_hour_shadepixels_barplot_1row.png"),
+       r_N_hour_shadepixels_barplot_1row,
+       width = 7*2.5,
+       height = 3,
+       bg = "white",
+       dpi = 300)
+
+```
+
+
+```{r}
+## FINISHED plot 2:
+
+# averaged sun and shade (tv_5) temperature at each orientation (e.g. NS) together with amount of shade pixels per hour
+
+colours_ref_5 <- c("salmon","darkblue")
+
+coef <- 10
+
+r_N_long %>%
+  filter(transveg_scenario == 5 & type == "Tmrt_reference") %>%
+  mutate(street_orientation = factor(street_orientation, levels = c("base", "NS", "EW", "NE-SW", "NW-SE"))) %>%
+  ggplot() +
+  geom_bar(aes(x = as.numeric(as.character((hour))), y = ..count.., fill = factor(street_angle)), position = "dodge") +
+  stat_summary(data = filter(r_N_long, transveg_scenario == 5 & type != "Tmrt_delta"),
+               fun = "mean", 
+               geom = "line",
+               aes(x = as.numeric(as.character((hour))), y = Tmrt*coef, color = type)) +
+
+  custom_theme +
+  scale_fill_manual(values = colours_ref_street_angles, 
+                    name = "street angle") +
+  scale_color_manual(values = colours_ref_5,
+                     name = "",
+                     labels = c(expression(T["MRT"]* " sun"),  expression(T["MRT"]* " shade")) ) +
+  labs(y = "#shade pixels (1 pixel = 1 m²)",
+       x = "")  +
+  scale_y_continuous(limits = c(0,600),
+                     name = "#shade pixels (1 pixel = 1 m²)",
+                     sec.axis = sec_axis(trans=~./coef, name=expression(T["MRT"]* " (°C)") )) +
+  scale_x_continuous(limits = c(8,20),
+                     breaks = c(seq(8,20,2))) +
+  facet_wrap(nrow = 3, vars(factor(street_orientation)), scales = "free") +
+  guides(fill = FALSE) +
+  theme(legend.position = "bottom") ->  r_N_hour_shadepixels_Tmrtsunshadetv5_bar_lineplot
+
+  
+  # 
+  # geom_line(data = filter(r_N_long, transveg_scenario == 5 & type != "Tmrt_delta"), 
+  #           aes(x = as.numeric(as.character((hour))), y = Tmrt*coef, color = type))
+
+#tv5: line with sun and shade Tmrt?
+
+
+suppressWarnings(print(r_N_hour_shadepixels_Tmrtsunshadetv5_bar_lineplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_hour_shadepixels_Tmrtsunshadetv5_bar_lineplot.png"),
+       r_N_hour_shadepixels_Tmrtsunshadetv5_bar_lineplot,
+       bg = "white",
+       dpi = 300)
+```
+
+
+```{r}
+## VARIATION
+
+r_N_hour_shadepixels_Tmrtsunshadetv5_bar_lineplot +
+  facet_wrap(nrow = 1, vars(factor(street_orientation)), scales = "free") -> r_N_hour_shadepixels_Tmrtsunshadetv5_bar_lineplot_1row
+
+suppressWarnings(print(r_N_hour_shadepixels_Tmrtsunshadetv5_bar_lineplot_1row))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_hour_shadepixels_Tmrtsunshadetv5_bar_lineplot_1row.png"),
+       r_N_hour_shadepixels_Tmrtsunshadetv5_bar_lineplot_1row,
+       width = 7*2.5,
+       height = 3,
+       bg = "white",
+       dpi = 300)
+
+
+```
+
+
+
+```{r}
+## FINISHED plot 3:
+
+# averaged sun and shade (tv_5 vs tv_50) temperature at each orientation (e.g. NS) together with amount of shade pixels per hour
+
+colours_ref_5_50 <- c("salmon","darkblue", "lightblue")
+
+coef <- 10
+
+r_N_long %>%
+  filter(transveg_scenario == 5 & type == "Tmrt_reference") %>%
+  mutate(street_orientation = factor(street_orientation, levels = c("base", "NS", "EW", "NE-SW", "NW-SE"))) %>%
+  ggplot() +
+  geom_bar(aes(x = as.numeric(as.character((hour))), y = ..count.., fill = factor(street_angle)), position = "dodge") +
+  stat_summary(data = r_N_long %>%
+                 filter(transveg_scenario %in% c(5, 50) & type != "Tmrt_delta") %>%
+                 mutate(type5_50 = ifelse(type == "Tmrt_shade" & transveg_scenario == 5, "Tmrt_shade_tv5",
+                                          ifelse(type == "Tmrt_shade" & transveg_scenario == 50, "Tmrt_shade_tv50",
+                                                 "Tmrt_reference"))),
+               fun = "mean", 
+               geom = "line",
+               aes(x = as.numeric(as.character((hour))), y = Tmrt*coef, color = type5_50)) +
+
+  custom_theme +
+  scale_fill_manual(values = colours_ref_street_angles, 
+                    name = "street angle") +
+  scale_color_manual(values = colours_ref_5_50,
+                     name = "",
+                     labels = c(expression(T["MRT"]* " sun"),  
+                                expression(T["MRT"] * " shade" ~ (tau == 5*"%")), 
+                                expression(T["MRT"] * " shade" ~ (tau == 50*"%")) )) +
+  labs(y = "#shade pixels (1 pixel = 1 m²)",
+       x = "")  +
+  scale_y_continuous(limits = c(0,600),
+                     name = "#shade pixels (1 pixel = 1 m²)",
+                     sec.axis = sec_axis(trans=~./coef, name=expression(T["MRT"]* " (°C)") )) +
+  scale_x_continuous(limits = c(8,20),
+                     breaks = c(seq(8,20,2))) +
+  facet_wrap(nrow = 3, vars(factor(street_orientation)), scales = "free") +
+  guides(fill = FALSE) +
+  theme(legend.position = "bottom") ->  r_N_hour_shadepixels_Tmrtsunshade_tv5_50_bar_lineplot
+
+  
+  # 
+  # geom_line(data = filter(r_N_long, transveg_scenario == 5 & type != "Tmrt_delta"), 
+  #           aes(x = as.numeric(as.character((hour))), y = Tmrt*coef, color = type))
+
+#tv5: line with sun and shade Tmrt?
+
+
+suppressWarnings(print(r_N_hour_shadepixels_Tmrtsunshade_tv5_50_bar_lineplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_hour_shadepixels_Tmrtsunshadetv5_50_bar_lineplot.png"),
+       r_N_hour_shadepixels_Tmrtsunshade_tv5_50_bar_lineplot,
+       bg = "white",
+       dpi = 300)
+
+```
+```{r}
+## VARIATION
+
+r_N_hour_shadepixels_Tmrtsunshade_tv5_50_bar_lineplot +
+  facet_wrap(nrow = 1, vars(factor(street_orientation)), scales = "free") -> r_N_hour_shadepixels_Tmrtsunshade_tv5_50_bar_lineplot_1row
+
+suppressWarnings(print(r_N_hour_shadepixels_Tmrtsunshade_tv5_50_bar_lineplot_1row))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_hour_shadepixels_Tmrtsunshade_tv5_50_bar_lineplot_1row.png"),
+       r_N_hour_shadepixels_Tmrtsunshade_tv5_50_bar_lineplot_1row,
+       width = 7*2.5,
+       height = 3,
+       bg = "white",
+       dpi = 300)
+```
+
+
+
+```{r}
+## variation: only basecase
+
+## FINISHED plot 3:
+
+# averaged sun and shade (tv_5 vs tv_50) temperature at each orientation (e.g. NS) together with amount of shade pixels per hour
+
+colours_ref_5_50 <- c("salmon","darkblue", "lightblue")
+
+coef <- 10
+
+r_N_long %>%
+  filter(transveg_scenario == 5 & type == "Tmrt_reference" & street_orientation == "base") %>%
+  mutate(street_orientation = factor(street_orientation, levels = c("base", "NS", "EW", "NE-SW", "NW-SE"))) %>%
+  ggplot() +
+  geom_bar(aes(x = as.numeric(as.character((hour))), y = ..count.., fill = factor(street_angle)), position = "dodge") +
+  stat_summary(data = r_N_long %>%
+                 filter(transveg_scenario %in% c(5, 50) & type != "Tmrt_delta") %>%
+                 mutate(type5_50 = ifelse(type == "Tmrt_shade" & transveg_scenario == 5, "Tmrt_shade_tv5",
+                                          ifelse(type == "Tmrt_shade" & transveg_scenario == 50, "Tmrt_shade_tv50",
+                                                 "Tmrt_reference"))),
+               fun = "mean", 
+               geom = "line",
+               aes(x = as.numeric(as.character((hour))), y = Tmrt*coef, color = type5_50)) +
+
+  custom_theme +
+  scale_fill_manual(values = c("#C65353"), 
+                    name = "street angle") +
+  scale_color_manual(values = colours_ref_5_50,
+                     name = "",
+                     labels = c(expression(T["MRT"]* " sun"),  
+                                expression(T["MRT"] * " shade" ~ (tau == 5*"%")), 
+                                expression(T["MRT"] * " shade" ~ (tau == 50*"%")) )) +
+  labs(y = "#shade pixels (1 pixel = 1 m²)",
+       x = "hour")  +
+  scale_y_continuous(limits = c(0,600),
+                     name = "#shade pixels (1 pixel = 1 m²)",
+                     sec.axis = sec_axis(trans=~./coef, name=expression(T["MRT"]* " (°C)") ),
+                     expand = c(0.015,0)) +
+  scale_x_continuous(limits = c(8,20),
+                     breaks = c(seq(8,20,1))) +
+  guides(fill = FALSE) +
+  theme(legend.position = "bottom") ->  r_base_hour_shadepixels_Tmrtsunshade_tv5_50_bar_lineplot
+
+  
+  # 
+  # geom_line(data = filter(r_N_long, transveg_scenario == 5 & type != "Tmrt_delta"), 
+  #           aes(x = as.numeric(as.character((hour))), y = Tmrt*coef, color = type))
+
+#tv5: line with sun and shade Tmrt?
+
+
+suppressWarnings(print(r_base_hour_shadepixels_Tmrtsunshade_tv5_50_bar_lineplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r_base_hour_shadepixels_Tmrtsunshade_tv5_50_bar_lineplot.png"),
+       r_base_hour_shadepixels_Tmrtsunshade_tv5_50_bar_lineplot,
+       bg = "white",
+       dpi = 300)
+
+
+```
+
+
+
+
+
+```{r}
+
+
+#all street angles
+r_N_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = as.numeric(ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario)))) %>%
+  filter(!(transveg_scenario %in% seq(10, 50, 5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  filter(type == "shade") %>%
+  group_by(street_angle, transveg_scenario, street_orientation) %>%
+  summarise(mean_delta_Tmrt = mean(Tmrt)) %>%
+  ungroup() %>%
+  ggplot() +
+  geom_point(aes(x = transveg_scenario, y = mean_delta_Tmrt, linetype = factor(street_angle), color = factor(street_orientation))) +
+  geom_line(aes(x = transveg_scenario, y = mean_delta_Tmrt, linetype = factor(street_angle), color = factor(street_orientation))) +
+  scale_linetype_manual(values = rep(1, length(unique(r_N_long$street_angle)))) +  # Adjust linetype values
+  scale_x_continuous(breaks = seq(5,50,5)) +
+  scale_y_continuous(limits = c(5,25)) 
+  guides(linetype = FALSE) +
+  custom_theme +
+  labs(x = expression(tau* " (%)"),
+       y = expression(Delta*"T"["MRT"]* " (°C)"),
+       color = "street angle",
+       fill = "Street Orientation") +
+  theme(legend.position = "bottom") -> r_N_transvegs_pointplot
+
+suppressWarnings(print(r_N_transvegs_pointplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_transvegs_pointplot.png"),
+       r_N_transvegs_pointplot,
+       height = 7,
+       width = 7,
+       bg = "white",
+       dpi = 300)
+
+#averaged per street rotation
+
+r_N_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = as.numeric(ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario)))) %>%
+  filter(!(transveg_scenario %in% seq(10, 50, 5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  filter(type == "shade") %>%
+  group_by(transveg_scenario, street_orientation) %>%
+  summarise(mean_delta_Tmrt = mean(Tmrt)) %>%
+  ungroup() %>%
+  ggplot() +
+  geom_point(aes(x = transveg_scenario, y = mean_delta_Tmrt, color = factor(street_orientation))) +
+  geom_line(aes(x = transveg_scenario, y = mean_delta_Tmrt, color = factor(street_orientation))) +
+  scale_linetype_manual(values = rep(1, length(unique(r_N_long$street_orientation)))) +  # Adjust linetype values
+  scale_x_continuous(breaks = seq(5,50,5)) +
+  scale_y_continuous(limits = c(5,25)) +
+  guides(linetype = FALSE) +
+  custom_theme +
+  labs(x = expression(tau* " (%)"),
+       y = expression(Delta*"T"["MRT"]* " (°C)"),
+       color = "averaged per street orientation:") +
+  theme(legend.position = "bottom") -> r_orientations_transvegs_pointplot
+
+suppressWarnings(print(r_orientations_transvegs_pointplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r_orientations_transvegs_pointplot.png"),
+       r_orientations_transvegs_pointplot,
+       height = 7,
+       width = 7,
+       bg = "white",
+       dpi = 300)
+
+
+
+```
+
+```{r}
+
+#all street angles and all hours
+r_N_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = as.numeric(ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario)))) %>%
+  filter(!(transveg_scenario %in% seq(10, 50, 5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  filter(type == "shade") %>%
+  group_by(street_angle, transveg_scenario, street_orientation) %>%
+  summarise(mean_delta_Tmrt = mean(Tmrt)) %>%
+  ungroup() %>%
+  ggplot() +
+  geom_point(aes(x = transveg_scenario, y = mean_delta_Tmrt, color = factor(street_angle))) +
+  geom_line(aes(x = transveg_scenario, y = mean_delta_Tmrt, color = factor(street_angle))) +
+  scale_linetype_manual(values = rep(1, length(unique(r_N_long$street_angle)))) +  # Adjust linetype values
+  scale_x_continuous(breaks = seq(5,50,5)) +
+  scale_y_continuous(limits = c(5,25)) +
+  scale_color_manual(values = colours_ref_street_angles) +
+  guides(linetype = FALSE) +
+  custom_theme +
+  labs(x = expression(tau* " (%)"),
+       y = expression(Delta*"T"["MRT"]* " (°C)"),
+       color = "street angle",
+       fill = "Street Orientation") +
+  theme(legend.position = "bottom") +
+  facet_wrap(vars(street_orientation),
+             nrow = 1, 
+             scales = "free") +
+  theme(legend.position = "none") -> r_N_deltatransvegs_facetorientation_pointplot
+
+suppressWarnings(print(r_N_deltatransvegs_facetorientation_pointplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_deltatransvegs_facetorientation_pointplot.png"),
+       r_N_deltatransvegs_facetorientation_pointplot,
+       height = 5,
+       width = 15,
+       bg = "white",
+       dpi = 300)
+
+
+# Create the plot
+r_N_deltatransvegs_facetorientation_pointplot +
+  # Add linear model slope values for each rotation_angle group
+  geom_text(data = r_N_long %>%
+              filter(type != "Tmrt_shade") %>%
+              mutate(transveg_scenario = as.numeric(
+                ifelse(
+                  type == "Tmrt_reference" &
+                    transveg_scenario == 5,
+                  "basecase",
+                  as.character(transveg_scenario)
+                )
+              )) %>%
+              filter(!(transveg_scenario %in% seq(10, 50, 5) &
+                         type == "Tmrt_reference")) %>%
+              mutate(type = factor(
+                type,
+                levels = c("Tmrt_reference", "Tmrt_delta"),
+                labels = c("sun", "shade")
+              )) %>%
+              filter(type == "shade") %>%
+              group_by(street_angle, transveg_scenario, street_orientation) %>%
+              summarise(mean_delta_Tmrt = mean(Tmrt)) %>%
+              ungroup() %>%
+              group_by(street_orientation) %>%
+              summarise(intercept = coef(lm(mean_delta_Tmrt ~ transveg_scenario))[1],
+                        slope = coef(lm(mean_delta_Tmrt ~ transveg_scenario))[2]),
+            aes(x = 50, y = 25, label = paste("y =", round(slope, 2), "x +", round(intercept, 2))), hjust = 1, vjust = 1, size = 3, color = "black") -> r_N_deltatransvegs_facetorientation_pointplot2
+
+suppressWarnings(print(r_N_deltatransvegs_facetorientation_pointplot2))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_deltatransvegs_facetorientation_pointplot2.png"),
+       r_N_deltatransvegs_facetorientation_pointplot2,
+       height = 5,
+       width = 15,
+       bg = "white",
+       dpi = 300)
+
+
+```
+
+
+
+```{r}
+
+#all street angles + filtered hours -> 11:18u
+
+filtered_hours <- c(11:17)
+
+r_N_long %>%
+  filter(type != "Tmrt_shade") %>%
+  filter(hour %in% c(filtered_hours)) %>%
+  mutate(transveg_scenario = as.numeric(ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario)))) %>%
+  filter(!(transveg_scenario %in% seq(10, 50, 5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  filter(type == "shade") %>%
+  group_by(street_angle, transveg_scenario, street_orientation) %>%
+  summarise(mean_delta_Tmrt = mean(Tmrt)) %>%
+  ungroup() %>%
+  ggplot() +
+  geom_point(aes(x = transveg_scenario, y = mean_delta_Tmrt, color = factor(street_angle))) +
+  geom_line(aes(x = transveg_scenario, y = mean_delta_Tmrt, color = factor(street_angle))) +
+  scale_linetype_manual(values = rep(1, length(unique(r_N_long$street_angle)))) +  # Adjust linetype values
+  scale_x_continuous(breaks = seq(5,50,5)) +
+  scale_y_continuous(limits = c(5,25)) +
+  scale_color_manual(values = colours_ref_street_angles) +
+  guides(linetype = FALSE) +
+  custom_theme +
+  labs(x = expression(tau* " (%)"),
+       y = expression(Delta*"T"["MRT"]* " (°C)"),
+       color = "street angle",
+       fill = "Street Orientation") +
+  theme(legend.position = "bottom") +
+  facet_wrap(vars(street_orientation),
+             nrow = 1, 
+             scales = "free") +
+  theme(legend.position = "none") +
+  # Add linear model slope values for each rotation_angle group
+  geom_text(data = r_N_long %>%
+              filter(hour %in% c(filtered_hours)) %>%
+              filter(type != "Tmrt_shade") %>%
+              mutate(transveg_scenario = as.numeric(
+                ifelse(
+                  type == "Tmrt_reference" &
+                    transveg_scenario == 5,
+                  "basecase",
+                  as.character(transveg_scenario)
+                )
+              )) %>%
+              filter(!(transveg_scenario %in% seq(10, 50, 5) &
+                         type == "Tmrt_reference")) %>%
+              mutate(type = factor(
+                type,
+                levels = c("Tmrt_reference", "Tmrt_delta"),
+                labels = c("sun", "shade")
+              )) %>%
+              filter(type == "shade") %>%
+              group_by(street_angle, transveg_scenario, street_orientation) %>%
+              summarise(mean_delta_Tmrt = mean(Tmrt)) %>%
+              ungroup() %>%
+              group_by(street_orientation) %>%
+              summarise(intercept = coef(lm(mean_delta_Tmrt ~ transveg_scenario))[1],
+                        slope = coef(lm(mean_delta_Tmrt ~ transveg_scenario))[2]),
+            aes(x = 50, y = 25, label = paste("y =", round(slope, 2), "x +", round(intercept, 2))), hjust = 1, vjust = 1, size = 3, color = "black") -> r_N_deltatransvegs_facetorientation_pointplot_11_17
+
+suppressWarnings(print(r_N_deltatransvegs_facetorientation_pointplot_11_18))
+
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_deltatransvegs_facetorientation_pointplot_11_17.png"),
+       r_N_deltatransvegs_facetorientation_pointplot_11_17,
+       height = 5,
+       width = 15,
+       bg = "white",
+       dpi = 300)
+
+
+```
+
+
+```{r}
+
+#all street angles and all hours
+r_N_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = as.numeric(ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario)))) %>%
+  filter(!(transveg_scenario %in% seq(10, 50, 5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  filter(type == "shade") %>%
+  group_by(street_angle, transveg_scenario, street_orientation) %>%
+  summarise(mean_delta_Tmrt = mean(Tmrt)) %>%
+  ungroup() %>%
+  ggplot() +
+  geom_point(aes(x = transveg_scenario, y = mean_delta_Tmrt, color = factor(street_angle))) +
+  geom_line(aes(x = transveg_scenario, y = mean_delta_Tmrt, color = factor(street_angle))) +
+  scale_linetype_manual(values = rep(1, length(unique(r_N_long$street_angle)))) +  # Adjust linetype values
+  scale_x_continuous(breaks = seq(5,50,5)) +
+  scale_y_continuous(limits = c(5,25)) +
+  scale_color_manual(values = colours_ref_street_angles) +
+  guides(linetype = FALSE) +
+  custom_theme +
+  labs(x = expression(tau* " (%)"),
+       y = expression(Delta*"T"["MRT"]* " (°C)"),
+       color = "street angle",
+       fill = "Street Orientation") +
+  theme(legend.position = "bottom") +
+  facet_wrap(vars(street_orientation),
+             nrow = 1, 
+             scales = "free") +
+  theme(legend.position = "none") -> r_N_deltatransvegs_facetorientation_pointplot
+
+suppressWarnings(print(r_N_deltatransvegs_facetorientation_pointplot))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_deltatransvegs_facetorientation_pointplot.png"),
+       r_N_deltatransvegs_facetorientation_pointplot,
+       height = 5,
+       width = 15,
+       bg = "white",
+       dpi = 300)
+
+
+# Create the plot
+r_N_deltatransvegs_facetorientation_pointplot +
+  # Add linear model slope values for each rotation_angle group
+  geom_text(data = r_N_long %>%
+              filter(type != "Tmrt_shade") %>%
+              mutate(transveg_scenario = as.numeric(ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario)))) %>%
+              filter(!(transveg_scenario %in% seq(10, 50, 5) &
+                         type == "Tmrt_reference")) %>%
+              mutate(type = factor(
+                type,
+                levels = c("Tmrt_reference", "Tmrt_delta"),
+                labels = c("sun", "shade")
+              )) %>%
+              filter(type == "shade") %>%
+              group_by(street_angle, transveg_scenario, street_orientation) %>%
+              summarise(mean_delta_Tmrt = mean(Tmrt)) %>%
+              ungroup() %>%
+              group_by(street_orientation) %>%
+              summarise(intercept = coef(lm(mean_delta_Tmrt ~ transveg_scenario))[1],
+                        slope = coef(lm(mean_delta_Tmrt ~ transveg_scenario))[2]),
+            aes(x = 50, y = 25, label = paste("y =", round(slope, 2), "x +", round(intercept, 2))), hjust = 1, vjust = 1, size = 3, color = "black") -> r_N_deltatransvegs_facetorientation_pointplot2
+
+suppressWarnings(print(r_N_deltatransvegs_facetorientation_pointplot2))
+
+ggsave(paste0("rotation_output_analysis/figures/r_N_deltatransvegs_facetorientation_pointplot2.png"),
+       r_N_deltatransvegs_facetorientation_pointplot2,
+       height = 5,
+       width = 15,
+       bg = "white",
+       dpi = 300)
+
+```
+
+
+
+```{r}
+## table generation
+library(kableExtra)
+
+r_N_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = as.numeric(ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario)))) %>%
+  filter(!(transveg_scenario %in% seq(10, 50, 5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  filter(type == "shade") %>%
+  group_by(street_angle, transveg_scenario, street_orientation) %>%
+  summarise(mean_delta_Tmrt = mean(Tmrt)) %>%
+  ungroup() %>%
+  group_by(street_orientation) %>%
+  mutate(mean_delta_Tmrt = round(mean_delta_Tmrt, 1)) %>%
+  pivot_wider(names_from = transveg_scenario,
+              values_from = mean_delta_Tmrt) %>%
+  kable() %>%
+  kable_styling()
+
+
+```
+
+
+
+```{r}
+## testing::
+
+
+r_N_long %>%
+  filter(type != "Tmrt_shade") %>%
+  mutate(transveg_scenario = as.numeric(ifelse(type == "Tmrt_reference" & transveg_scenario == 5, "basecase", as.character(transveg_scenario)))) %>%
+  filter(!(transveg_scenario %in% seq(10, 50, 5) & type == "Tmrt_reference")) %>%
+  mutate(type = factor(type, levels = c("Tmrt_reference", "Tmrt_delta"), labels = c("sun", "shade"))) %>%
+  filter(type == "shade") %>%
+  group_by(street_angle, transveg_scenario, street_orientation) %>%
+  summarise(mean_delta_Tmrt = mean(Tmrt)) -> r_N_long_meandelta
+
+r_N_long_meandelta %>%
+  ungroup() %>% #constructing linear model 
+  nest(data = -street_angle) %>%
+  mutate(model = map(data, ~lm(mean_delta_Tmrt ~ transveg_scenario, data = .)), tidied = map(model, tidy)) %>% 
+  unnest(tidied) -> scenario_fitted_models
+
+#extract slopes
+scenario_fitted_models %>%
+  filter(term == "transveg_scenario") %>%
+  mutate(slope = estimate) %>%
+  select(street_angle, slope) -> scenario_slopes
+
+#merge slope with full table
+summary_slopes <- right_join(scenario_slopes, r_N_long_meandelta, by = "street_angle")
+  
+#plotting of slope in function of rotation angle
+summary_slopes %>% 
+  group_by(street_angle) %>%
+  summarise(slope = first(slope)) %>%
+  ggplot(aes(x = street_angle, y = slope)) +
+  scale_x_continuous(breaks = c(15, seq(45,360,45))) +
+  geom_col() +
+  theme_ipsum()
+
+# plottins of slope in function of rotation angle (polar coordinates)
+summary_slopes %>% 
+  group_by(street_angle) %>%
+  summarise(slope = first(slope),
+            street_orientation = first(street_orientation)) %>%
+  ggplot() +
+  geom_bar(aes(x = street_angle, y = slope, fill = street_orientation),
+           stat = "identity", width = 15) +
+  coord_polar() +
+  scale_x_continuous(limits = c(0,360),
+                     breaks = seq(0,360,45)) +
+  labs(x = "Street Angle (degrees)", y = "Slope") +
+  theme_minimal()
+
+
+
+
+
+```
 
 

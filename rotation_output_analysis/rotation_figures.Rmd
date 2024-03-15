@@ -60,7 +60,7 @@ DSM_background_df <- gplot_data(DSM_background)
 ```
 
 
-```{r}
+```{r plotting of hourly density plots of all scenarios}
 ## all rotation scenarios
 
 # scenario selecteren
@@ -95,41 +95,44 @@ for (rotation_folder in folder_list){
   
   hour_summary_df <- data.frame()
   
-  for (i in 1:(length(raster_list_full)-1)) {
-    
-    print(i)
-    
-    scenario <- names(raster_list_full)[i+1]
-    print(scenario)
-    
-    delta_df <- raster_list_to_delta_df(raster_list_full, scenario)
-    
-    #SUMMARY DATAFRAME CONSTRUCTION
-    hour_summary_df_temp <- raster_list_to_delta_df(raster_list_full, scenario, summary_index = 2)
-
-    hour_summary_df <- rbind(hour_summary_df, hour_summary_df_temp)
-    
-    
-    #PLOTTING
-    p <- delta_hour_plotting(delta_df, scenario)
-
-    p + ggtitle(paste0("Street angle: ", rotation_angle+15 ,"° ", "- Scenario: ", scenario)) -> p
-
-    ggsave(paste0(figure_output_folder, "/", scenario, "_deltaT.png"),
-         p,
-         bg = "white",
-         dpi = 300)
-    
-  }
+  # for (i in 1:(length(raster_list_full)-1)) {
+  #   
+  #   print(i)
+  #   
+  #   scenario <- names(raster_list_full)[i+1]
+  #   print(scenario)
+  #   
+  #   delta_df <- raster_list_to_delta_df(raster_list_full, scenario)
+  #   
+  #   #SUMMARY DATAFRAME CONSTRUCTION
+  #   hour_summary_df_temp <- raster_list_to_delta_df(raster_list_full, scenario, summary_index = 2)
+  # 
+  #   hour_summary_df <- rbind(hour_summary_df, hour_summary_df_temp)
+  #   
+  #   
+  #   #PLOTTING
+  #   p <- delta_hour_plotting(delta_df, scenario)
+  # 
+  #   p + ggtitle(paste0("Street angle: ", rotation_angle+15 ,"° ", "- Scenario: ", scenario)) -> p
+  # 
+  #   ggsave(paste0(figure_output_folder, "/", scenario, "_deltaT.png"),
+  #        p,
+  #        bg = "white",
+  #        dpi = 300)
+  # 
+  # }
   
 }
+
+#writing away the result
+# saveRDS(raster_list_full, "rotation_output_analysis/delta_Tmrt_data/raster_list_full.Rdata")
+
+
 
 ```
 
 
-
-
-```{r}
+```{r overview dataframe creation}
 ## all rotation scenarios -> create overview list
 
 # scenario selecteren
@@ -223,7 +226,6 @@ for (rotation_folder in folder_list){ #N
   
 }
 
-
 #CHECK OUTPUT
 delta_df_list_full
 hour_summary_df
@@ -238,7 +240,7 @@ save(hour_summary_df, file = "rotation_output_analysis/delta_Tmrt_data/delta_df_
 
 
 
-```{r}
+```{r loading in the overview dataframes}
 
 # load the full (delte) Tmrt list:
 delta_df_list_full <- readRDS("rotation_output_analysis/delta_Tmrt_data/delta_df_list_full.Rdata")
